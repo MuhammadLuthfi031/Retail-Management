@@ -1,28 +1,59 @@
 @php
     $isEdit = (bool) $product;
     $trackingMode = old('tracking_mode', $product->tracking_mode ?? 'unit');
+    $reopening = old('form_id') === $formId;
 
-    // Apakah form INI yang tadi disubmit lalu gagal validasi? (lihat catatan
-    // panjang soal ini di index.blade.php, dekat pemanggilan script re-open modal)
-    $reopeningWithErrors = old('form_id') === $formId;
+    // Satuan yang SAAT INI jadi dasar di database (null kalau produk baru).
+    // Dipakai untuk menandai baris mana yang terkunci (tidak boleh dihapus),
+    // dicocokkan lewat ID satuan — bukan lewat posisi — supaya tetap akurat
+    // walau urutan baris di form sempat berubah gara-gara validasi gagal.
+    $currentBaseUnitId = $isEdit ? optional($product->units->firstWhere('is_base_unit', true))->id : null;
 
-    if ($reopeningWithErrors) {
-        $baseIndexOld = old("is_base_unit_index_{$formId}");
+    if ($reopening) {
+        // Form ini yang tadi disubmit lalu gagal validasi — rekonstruksi ulang
+        // dari old('units') APA ADANYA (relative_qty sudah dalam bentuk relatif
+        // persis seperti yang diketik user, tidak perlu dikonversi lagi).
         $purchaseIndexOld = old("is_purchase_unit_index_{$formId}");
+        $rawOldUnits = collect(old('units', []))->values();
+        $lastOldIndex = $rawOldUnits->count() - 1;
 
-        $unitRows = collect(old('units', []))->map(function ($row, $index) use ($baseIndexOld, $purchaseIndexOld) {
+        $unitRows = $rawOldUnits->map(function ($row, $i) use ($purchaseIndexOld, $lastOldIndex, $currentBaseUnitId) {
             return (object) [
                 'id' => $row['id'] ?? null,
                 'unit_name' => $row['unit_name'] ?? '',
-                'conversion_to_base' => $row['conversion_to_base'] ?? '',
+                'relative_qty' => $row['relative_qty'] ?? '',
                 'selling_price' => $row['selling_price'] ?? '',
                 'barcode' => $row['barcode'] ?? '',
-                'is_base_unit' => (string) $baseIndexOld === (string) $index,
-                'is_purchase_unit' => (string) $purchaseIndexOld === (string) $index,
+                'is_purchase_unit' => (string) $purchaseIndexOld === (string) $i,
+                'is_base_row' => $i === $lastOldIndex,
+                'is_locked' => $currentBaseUnitId !== null && (string) ($row['id'] ?? null) === (string) $currentBaseUnitId,
             ];
         })->values();
     } elseif ($isEdit) {
-        $unitRows = $product->units;
+        // Mode edit tanpa error — data asli dari DB (conversion_to_base ABSOLUT)
+        // diubah dulu jadi nilai RELATIF (terhadap baris tepat di bawahnya)
+        // supaya yang ditampilkan di form sesuai cara input yang baru.
+        $dbUnits = $product->units->values(); // sudah terurut sort_order dari controller
+        $total = $dbUnits->count();
+
+        $unitRows = $dbUnits->map(function ($unit, $i) use ($dbUnits, $total, $currentBaseUnitId) {
+            $isLastPos = $i === $total - 1;
+            $nextConversion = $isLastPos ? 1.0 : (float) $dbUnits[$i + 1]->conversion_to_base;
+            $relative = $isLastPos || $nextConversion <= 0
+                ? ''
+                : rtrim(rtrim(number_format(((float) $unit->conversion_to_base) / $nextConversion, 3, '.', ''), '0'), '.');
+
+            return (object) [
+                'id' => $unit->id,
+                'unit_name' => $unit->unit_name,
+                'relative_qty' => $relative,
+                'selling_price' => $unit->selling_price,
+                'barcode' => $unit->barcode,
+                'is_purchase_unit' => (bool) $unit->is_purchase_unit,
+                'is_base_row' => $isLastPos,
+                'is_locked' => $unit->id === $currentBaseUnitId,
+            ];
+        });
     } else {
         $unitRows = collect();
     }
@@ -93,34 +124,44 @@
 
         <x-barcode-scan-shared :form-id="$formId" />
 
+        <div class="mb-2 rounded-md bg-indigo-50 border border-indigo-100 px-3 py-2 text-xs text-indigo-700">
+            Susun dari yang <strong>terbesar di atas</strong> ke <strong>terkecil di bawah</strong>. Baris paling bawah
+            otomatis jadi <strong>Satuan Dasar</strong> (dipakai untuk tracking stok) — tidak perlu dipilih manual.
+            Isi kolom "Isi" dengan jumlah satuan di <strong>baris tepat di bawahnya</strong>, bukan langsung ke satuan
+            dasar (contoh: 1 dus = 24 <em>renceng</em>, bukan 24 sachet — sistem yang menghitung totalnya otomatis,
+            lihat pratinjau kecil di bawah tiap kolom "Isi").
+            @if ($isEdit)
+                Satuan dasar produk ini sudah terkunci dan tidak bisa dipindah/dihapus lagi.
+            @endif
+        </div>
+
         <div class="border border-gray-200 rounded-lg overflow-x-auto">
             <table class="min-w-full text-sm">
                 <thead class="bg-gray-50 text-xs text-gray-500 uppercase">
                     <tr>
                         <th class="px-3 py-2 text-left">Nama Satuan</th>
-                        <th class="px-3 py-2 text-left">Isi (→ satuan dasar)</th>
+                        <th class="px-3 py-2 text-left">Isi (→ satuan di bawahnya)</th>
                         <th class="px-3 py-2 text-left">Harga Jual</th>
                         <th class="px-3 py-2 text-left">Barcode</th>
-                        <th class="px-3 py-2 text-center">Dasar?</th>
                         <th class="px-3 py-2 text-center">Beli?</th>
                         <th></th>
                     </tr>
                 </thead>
-                <tbody data-unit-rows="{{ $formId }}" data-counter="{{ $unitRows->count() }}">
+                <tbody data-unit-rows="{{ $formId }}" data-counter="{{ $unitRows->count() }}" data-lock-last="{{ $isEdit ? '1' : '0' }}">
                     @foreach ($unitRows as $index => $unit)
                         @include('gudang.produk._unit-row', ['unit' => $unit, 'index' => $index, 'formId' => $formId])
                     @endforeach
                 </tbody>
             </table>
-            @if ($unitRows->isEmpty())
-                <p class="px-3 py-3 text-xs text-gray-400" data-unit-empty-hint>
-                    Belum ada satuan. Klik "+ Tambah Satuan" untuk menambahkan (contoh: dus, renceng, sachet — atau kg/gram untuk produk curah).
-                </p>
-            @endif
+            {{-- Selalu di-render (bukan @if), supaya toggleEmptyHint() di JS bisa
+                 menampilkan/menyembunyikannya kapan pun — termasuk kalau user
+                 menghapus SEMUA baris satuan yang bisa dihapus di mode edit. --}}
+            <p class="px-3 py-3 text-xs text-gray-400 {{ $unitRows->isEmpty() ? '' : 'hidden' }}" data-unit-empty-hint>
+                Belum ada satuan. Klik "+ Tambah Satuan" untuk menambahkan (contoh: dus, renceng, sachet — atau kg/gram untuk produk curah).
+            </p>
         </div>
         <p class="mt-1 text-xs text-gray-400">
-            "Isi" = berapa satuan dasar terkandung dalam 1 satuan ini (satuan dasar = 1, terkunci otomatis).
-            Kolom "Beli?" menandai satuan default saat belanja/restock dari supplier.
+            Kolom "Beli?" menandai satuan default saat belanja/restock dari supplier — ini boleh diubah kapan saja.
         </p>
     </div>
 
@@ -199,21 +240,21 @@
 
 <!-- Template baris satuan baru (dipakai JS saat klik "+ Tambah Satuan") -->
 <template data-unit-row-template="{{ $formId }}">
-    <tr data-unit-row class="border-t border-gray-100">
+    <tr data-unit-row class="border-t border-gray-100" data-locked="0">
         <td class="px-2 py-1.5">
             <input type="text" data-field="unit_name" placeholder="contoh: renceng" required class="w-full rounded-md border-gray-300 text-sm">
         </td>
         <td class="px-2 py-1.5">
-            <input type="number" step="0.001" min="0.001" data-field="conversion_to_base" required class="w-24 rounded-md border-gray-300 text-sm">
+            <input type="number" step="0.001" min="0.001" data-field="relative_qty" required
+                   class="w-24 rounded-md border-gray-300 text-sm" placeholder="qty">
+            <span class="block text-xs text-gray-400 mt-0.5" data-conversion-hint></span>
+            <span class="hidden inline-flex items-center px-2 py-1 rounded-md bg-indigo-50 text-indigo-700 text-xs font-medium" data-base-label>Satuan Dasar</span>
         </td>
         <td class="px-2 py-1.5">
             <input type="number" min="0" data-field="selling_price" placeholder="opsional" class="w-28 rounded-md border-gray-300 text-sm">
         </td>
         <td class="px-2 py-1.5">
             <input type="text" data-field="barcode" data-barcode-row-target placeholder="opsional" class="w-32 rounded-md border-gray-300 text-sm">
-        </td>
-        <td class="px-2 py-1.5 text-center">
-            <input type="radio" data-field="is_base_unit">
         </td>
         <td class="px-2 py-1.5 text-center">
             <input type="radio" data-field="is_purchase_unit">

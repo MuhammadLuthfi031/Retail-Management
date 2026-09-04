@@ -34,6 +34,13 @@ class ProductUnit extends Model
         return $this->belongsTo(Product::class);
     }
 
+    /** Riwayat pemakaian satuan ini di Purchase Order — dipakai untuk mencegah
+     *  penghapusan satuan yang datanya masih direferensikan histori pembelian. */
+    public function purchaseOrderItems()
+    {
+        return $this->hasMany(PurchaseOrderItem::class);
+    }
+
     /** Konversi kuantitas dalam satuan INI ke kuantitas satuan dasar. */
     public function toBase(float $quantity): float
     {

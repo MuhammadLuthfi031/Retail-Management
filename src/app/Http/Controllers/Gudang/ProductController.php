@@ -86,7 +86,32 @@ class ProductController extends Controller
     public function update(Request $request, Product $product): RedirectResponse
     {
         $validated = $this->validatedProduct($request, $product->id);
+
+        // Satuan dasar SAAT INI (sebelum diproses) — dipakai buat pertahanan
+        // berlapis di bawah (lihat catatan panjang di extractUnits()).
+        $currentBaseUnitId = $product->units()->where('is_base_unit', true)->value('id');
+
         $units = $this->extractUnits($request);
+
+        // PERTAHANAN BERLAPIS: satuan dasar (baris terakhir di tabel) dikunci
+        // sejak produk dibuat, sama seperti tracking_mode — supaya stok,
+        // average_cost, dan seluruh riwayat StockMovement/PurchaseOrderItem
+        // yang sudah tercatat dalam satuan dasar LAMA tidak pernah diam-diam
+        // "dibaca ulang" sebagai satuan dasar BARU tanpa konversi apa pun.
+        // Form sudah mengunci ini secara visual (baris satuan dasar tidak
+        // punya tombol Hapus & baris baru selalu disisipkan SEBELUM baris
+        // terakhir, bukan sesudahnya — lihat unit-rows.js), ini jaga-jaga di
+        // server kalau markup form di-modifikasi manual dari luar.
+        if ($currentBaseUnitId !== null) {
+            $submittedBaseUnit = end($units);
+            $submittedBaseIsSameRow = $submittedBaseUnit && (int) ($submittedBaseUnit['id'] ?? 0) === (int) $currentBaseUnitId;
+
+            if (! $submittedBaseIsSameRow) {
+                throw ValidationException::withMessages([
+                    'units' => 'Satuan dasar (baris paling bawah) tidak bisa diubah setelah produk dibuat — ini mengunci konsistensi stok & riwayat pergerakan yang sudah tercatat. Buat produk baru kalau struktur satuannya memang perlu dirombak total.',
+                ]);
+            }
+        }
 
         $validated['sku'] = $validated['sku'] ?: $product->sku;
         $validated['is_active'] = $request->boolean('is_active', true);
@@ -119,6 +144,10 @@ class ProductController extends Controller
             return back()->with('error', "Produk \"{$product->name}\" tidak bisa dihapus karena sudah pernah terjual. Nonaktifkan saja produk ini jika sudah tidak dijual.");
         }
 
+        if ($product->purchaseOrderItems()->exists()) {
+            return back()->with('error', "Produk \"{$product->name}\" tidak bisa dihapus karena sudah pernah dipakai di Purchase Order. Nonaktifkan saja produk ini jika sudah tidak dipesan lagi.");
+        }
+
         if ($product->image) {
             Storage::disk('public')->delete($product->image);
         }
@@ -148,47 +177,91 @@ class ProductController extends Controller
     }
 
     /**
-     * Ambil & validasi array satuan dari request. Nama field radio untuk
-     * is_base_unit/is_purchase_unit bersifat dinamis (di-scope per form_id
-     * di sisi Blade, supaya tidak bentrok antar modal di halaman yang sama).
+     * Ambil & validasi array satuan dari request.
+     *
+     * DESAIN: tidak ada penanda "Satuan Dasar" manual sama sekali (dulu radio
+     * `is_base_unit_index_*`, sekarang dihapus) — baris PALING TERAKHIR yang
+     * dikirim dari form SELALU otomatis jadi satuan dasar. Ini menghilangkan
+     * dua kelas bug sekaligus: (1) lupa menandai satuan dasar, dan (2) tidak
+     * sengaja memindahkan status dasar ke baris lain pas edit — karena tidak
+     * ada tombol/radio apa pun yang bisa "dipencet salah" untuk itu.
+     *
+     * Setiap baris SELAIN yang terakhir mengirim `relative_qty`: "isi ke
+     * satuan TEPAT DI BAWAHNYA" (bukan langsung ke satuan dasar). Nilai
+     * absolut ke satuan dasar dihitung berjenjang di sini.
      */
     private function extractUnits(Request $request): array
     {
         $formId = $request->input('form_id');
         $rawUnits = $request->input('units', []);
-        $baseIndex = $request->input("is_base_unit_index_{$formId}");
         $purchaseIndex = $request->input("is_purchase_unit_index_{$formId}");
 
         if (empty($rawUnits)) {
             throw ValidationException::withMessages(['units' => 'Minimal harus ada 1 satuan produk.']);
         }
-        if ($baseIndex === null || ! isset($rawUnits[$baseIndex])) {
-            throw ValidationException::withMessages(['units' => 'Tentukan satu satuan sebagai "Satuan Dasar".']);
-        }
 
-        $units = [];
+        $cleanRows = [];
         foreach ($rawUnits as $index => $row) {
             $unitName = trim((string) ($row['unit_name'] ?? ''));
-            $conversion = (float) ($row['conversion_to_base'] ?? 0);
 
-            if ($unitName === '' || $conversion <= 0) {
-                continue; // lewati baris kosong/tidak valid (misal sempat ditambah lalu dikosongkan)
+            if ($unitName === '') {
+                continue; // lewati baris kosong (misal sempat ditambah lalu dikosongkan)
             }
 
-            $units[] = [
+            $rawQty = ($row['relative_qty'] ?? '') !== '' ? (float) $row['relative_qty'] : null;
+
+            $cleanRows[] = [
                 'id' => $row['id'] ?? null,
                 'unit_name' => $unitName,
-                'conversion_to_base' => (string) $index === (string) $baseIndex ? 1 : $conversion,
+                'relative_qty' => $rawQty,
                 'selling_price' => ($row['selling_price'] ?? '') !== '' ? (int) $row['selling_price'] : null,
                 'barcode' => ($row['barcode'] ?? '') !== '' ? trim($row['barcode']) : null,
-                'is_base_unit' => (string) $index === (string) $baseIndex,
                 'is_purchase_unit' => (string) $index === (string) $purchaseIndex,
-                'sort_order' => count($units),
             ];
         }
 
-        if (empty($units)) {
+        if (empty($cleanRows)) {
             throw ValidationException::withMessages(['units' => 'Minimal harus ada 1 satuan produk yang valid.']);
+        }
+
+        // Baris PALING BAWAH (terakhir dalam urutan pengiriman form, yang
+        // mengikuti urutan visual tabel dari atas ke bawah) = satuan dasar.
+        $baseArrayIndex = count($cleanRows) - 1;
+
+        foreach ($cleanRows as $i => $row) {
+            if ($i === $baseArrayIndex) {
+                continue;
+            }
+            if ($row['relative_qty'] === null || $row['relative_qty'] <= 0) {
+                throw ValidationException::withMessages([
+                    'units' => "Isi kolom \"Isi\" untuk satuan \"{$row['unit_name']}\" (harus lebih besar dari 0).",
+                ]);
+            }
+        }
+
+        // Hitung conversion_to_base ABSOLUT (ke satuan dasar) secara BERJENJANG:
+        // mulai dari satuan dasar (=1), lalu menaik ke satuan yang lebih besar
+        // dengan mengalikan "isi ke satuan di bawahnya" satu per satu. Ini yang
+        // membuat input "1 dus = 24 renceng, 1 renceng = 12 sachet" otomatis
+        // tersimpan sebagai "1 dus = 288 sachet" — bukan cuma 24 sachet.
+        $count = count($cleanRows);
+        $absolute = array_fill(0, $count, 1.0);
+        for ($i = $baseArrayIndex - 1; $i >= 0; $i--) {
+            $absolute[$i] = $cleanRows[$i]['relative_qty'] * $absolute[$i + 1];
+        }
+
+        $units = [];
+        foreach ($cleanRows as $i => $row) {
+            $units[] = [
+                'id' => $row['id'],
+                'unit_name' => $row['unit_name'],
+                'conversion_to_base' => $i === $baseArrayIndex ? 1 : $absolute[$i],
+                'selling_price' => $row['selling_price'],
+                'barcode' => $row['barcode'],
+                'is_base_unit' => $i === $baseArrayIndex,
+                'is_purchase_unit' => $row['is_purchase_unit'],
+                'sort_order' => $i,
+            ];
         }
 
         // Validasi barcode unik (lintas produk lain maupun sesama baris di form ini)
@@ -229,8 +302,25 @@ class ProductController extends Controller
             }
         }
 
-        // Hapus baris satuan yang tadinya ada tapi sudah dihapus user dari form (mode edit)
-        $product->units()->whereNotIn('id', $keepIds)->delete();
+        // Baris satuan yang tadinya ada di DB tapi sudah dihapus user dari form (mode edit).
+        $unitsToDelete = $product->units()->whereNotIn('id', $keepIds)->get();
+
+        // Satuan yang sudah pernah dipakai di Purchase Order TIDAK BOLEH dihapus —
+        // purchase_order_items.product_unit_id adalah foreign key tanpa cascade,
+        // jadi penghapusan paksa akan gagal di level database (500 error) kalau
+        // tidak dicegah di sini dulu dengan pesan yang jelas.
+        $blocked = $unitsToDelete->filter(fn (ProductUnit $unit) => $unit->purchaseOrderItems()->exists());
+
+        if ($blocked->isNotEmpty()) {
+            $names = $blocked->pluck('unit_name')->implode('", "');
+            throw ValidationException::withMessages([
+                'units' => "Satuan \"{$names}\" tidak bisa dihapus karena sudah pernah dipakai di Purchase Order. Biarkan barisnya tetap ada (boleh kosongkan harga jual kalau sudah tidak dijual), atau kosongkan qty/hapus itemnya dulu dari PO terkait.",
+            ]);
+        }
+
+        foreach ($unitsToDelete as $unit) {
+            $unit->delete();
+        }
     }
 
     private function generateSku(): string
