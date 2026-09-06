@@ -31,8 +31,7 @@
                 <div>
                     <span class="text-xs text-gray-400 uppercase block">Stok Saat Ini</span>
                     <span class="font-semibold text-gray-900">
-                        {{ rtrim(rtrim(number_format((float) $product->stock, 3, '.', ''), '0'), '.') }}
-                        {{ $product->baseUnit->unit_name ?? '' }}
+                        {{ $product->formatStock((float) $product->stock) }}
                     </span>
                 </div>
                 <div>
@@ -74,12 +73,12 @@
                                     </span>
                                 </td>
                                 <td class="px-4 py-3 text-right font-medium {{ $increased ? 'text-emerald-600' : 'text-red-600' }}">
-                                    {{ $increased ? '+' : '-' }}{{ rtrim(rtrim(number_format((float) $m->quantity, 3, '.', ''), '0'), '.') }}
+                                    {{ $increased ? '+' : '-' }}{{ $product->formatStock((float) $m->quantity) }}
                                 </td>
                                 <td class="px-4 py-3 text-right text-gray-500 whitespace-nowrap">
-                                    {{ rtrim(rtrim(number_format((float) $m->stock_before, 3, '.', ''), '0'), '.') }}
+                                    {{ $product->formatStock((float) $m->stock_before) }}
                                     &rarr;
-                                    {{ rtrim(rtrim(number_format((float) $m->stock_after, 3, '.', ''), '0'), '.') }}
+                                    {{ $product->formatStock((float) $m->stock_after) }}
                                 </td>
                                 <td class="px-4 py-3 text-gray-500 max-w-xs">
                                     {{ $m->note }}

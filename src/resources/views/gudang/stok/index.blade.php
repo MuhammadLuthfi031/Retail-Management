@@ -61,13 +61,11 @@
                                         'bg-red-100 text-red-700' => $product->isLowStock(),
                                         'bg-gray-100 text-gray-700' => ! $product->isLowStock(),
                                     ])>
-                                        {{ rtrim(rtrim(number_format((float) $product->stock, 3, '.', ''), '0'), '.') }}
-                                        {{ $product->baseUnit->unit_name ?? '' }}
+                                        {{ $product->formatStock((float) $product->stock) }}
                                     </span>
                                 </td>
                                 <td class="px-4 py-3 text-right text-gray-500">
-                                    {{ rtrim(rtrim(number_format((float) $product->min_stock, 3, '.', ''), '0'), '.') }}
-                                    {{ $product->baseUnit->unit_name ?? '' }}
+                                    {{ $product->formatStock((float) $product->min_stock) }}
                                 </td>
                                 <td class="px-4 py-3 text-right whitespace-nowrap space-x-1">
                                     <a href="{{ route('gudang.stok.show', $product) }}" class="text-xs font-medium text-gray-500 hover:text-gray-700 px-2 py-1">
@@ -100,7 +98,7 @@
                                     <x-text-input type="number" step="0.001" min="0.001" max="{{ (float) $product->stock }}"
                                                   name="quantity" value="{{ old('form_id') === 'stok-keluar-' . $product->id ? old('quantity') : '' }}"
                                                   class="mt-1 block w-full" required />
-                                    <p class="mt-1 text-xs text-gray-400">Stok saat ini: {{ rtrim(rtrim(number_format((float) $product->stock, 3, '.', ''), '0'), '.') }}</p>
+                                    <p class="mt-1 text-xs text-gray-400">Stok saat ini: {{ $product->formatStock((float) $product->stock) }}</p>
 
                                     <div class="mt-3">
                                         <x-input-label value="Keterangan (wajib)" />
@@ -131,7 +129,7 @@
                                     <x-text-input type="number" step="0.001" min="0.001" max="{{ (float) $product->stock }}"
                                                   name="quantity" value="{{ old('form_id') === 'stok-mutasi-' . $product->id ? old('quantity') : '' }}"
                                                   class="mt-1 block w-full" required />
-                                    <p class="mt-1 text-xs text-gray-400">Stok saat ini: {{ rtrim(rtrim(number_format((float) $product->stock, 3, '.', ''), '0'), '.') }}</p>
+                                    <p class="mt-1 text-xs text-gray-400">Stok saat ini: {{ $product->formatStock((float) $product->stock) }}</p>
 
                                     <div class="mt-3">
                                         <x-input-label value="Keterangan (wajib)" />
@@ -162,7 +160,7 @@
                                     <x-text-input type="number" step="0.001" min="0" name="physical_stock"
                                                   value="{{ $oldPhysical ?? rtrim(rtrim(number_format((float) $product->stock, 3, '.', ''), '0'), '.') }}"
                                                   class="mt-1 block w-full" required />
-                                    <p class="mt-1 text-xs text-gray-400">Stok menurut sistem: {{ rtrim(rtrim(number_format((float) $product->stock, 3, '.', ''), '0'), '.') }}</p>
+                                    <p class="mt-1 text-xs text-gray-400">Stok menurut sistem: {{ $product->formatStock((float) $product->stock) }}</p>
 
                                     <div class="mt-3">
                                         <x-input-label value="Keterangan (opsional)" />

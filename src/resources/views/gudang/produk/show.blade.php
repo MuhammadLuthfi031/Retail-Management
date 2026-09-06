@@ -52,8 +52,7 @@
                                 'text-red-600' => $product->isLowStock(),
                                 'text-gray-900' => ! $product->isLowStock(),
                             ])>
-                                {{ rtrim(rtrim(number_format((float) $product->stock, 3, '.', ''), '0'), '.') }}
-                                {{ $product->baseUnit->unit_name ?? '' }}
+                                {{ $product->formatStock((float) $product->stock) }}
                                 @if ($product->isLowStock())
                                     <span class="text-xs font-normal text-red-500">(menipis)</span>
                                 @endif
@@ -117,11 +116,22 @@
                         </tr>
                     </thead>
                     <tbody class="divide-y divide-gray-100">
-                        @forelse ($product->units as $unit)
+                        @forelse ($product->units as $index => $unit)
+                            @php
+                                // Tampilkan "Isi" relatif ke satuan TEPAT DI BAWAHNYA (bukan
+                                // langsung ke satuan dasar) — konsisten dengan cara input di
+                                // form Tambah/Edit Produk. Baris dasar (paling bawah, tidak
+                                // punya "next") ditampilkan trivial "1 x = 1 x".
+                                $next = $product->units->get($index + 1);
+                                $nextConversion = $next ? (float) $next->conversion_to_base : 1.0;
+                                $relativeQty = $next ? round((float) $unit->conversion_to_base / max($nextConversion, 0.000001), 3) : 1.0;
+                                $relativeUnitName = $next ? $next->unit_name : $unit->unit_name;
+                                $relativeQtyText = rtrim(rtrim(number_format($relativeQty, 3, '.', ''), '0'), '.');
+                            @endphp
                             <tr>
                                 <td class="px-4 py-3 font-medium text-gray-900">{{ $unit->unit_name }}</td>
                                 <td class="px-4 py-3 text-right text-gray-500">
-                                    1 {{ $unit->unit_name }} = {{ rtrim(rtrim(number_format((float) $unit->conversion_to_base, 3, '.', ''), '0'), '.') }} {{ $product->baseUnit->unit_name ?? '' }}
+                                    1 {{ $unit->unit_name }} = {{ $relativeQtyText }} {{ $relativeUnitName }}
                                 </td>
                                 <td class="px-4 py-3 text-right text-gray-900">
                                     {{ $unit->selling_price ? 'Rp ' . number_format($unit->selling_price, 0, ',', '.') : '—' }}

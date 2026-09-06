@@ -123,8 +123,7 @@
                                         'bg-red-100 text-red-700' => $product->isLowStock(),
                                         'bg-gray-100 text-gray-700' => ! $product->isLowStock(),
                                     ])>
-                                        {{ rtrim(rtrim(number_format((float) $product->stock, 3, '.', ''), '0'), '.') }}
-                                        {{ $baseUnit->unit_name ?? '' }}
+                                        {{ $product->formatStock((float) $product->stock) }}
                                     </span>
                                 </td>
                                 <td class="px-4 py-3 text-center">
