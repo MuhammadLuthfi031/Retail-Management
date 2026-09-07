@@ -61,7 +61,7 @@
                         <div>
                             <div class="text-xs text-gray-400 uppercase">Ambang Batas Menipis</div>
                             <div class="font-medium text-gray-900">
-                                {{ rtrim(rtrim(number_format((float) $product->min_stock, 3, '.', ''), '0'), '.') }}
+                                {{ \App\Support\Number::trim((float) $product->min_stock) }}
                                 {{ $product->baseUnit->unit_name ?? '' }}
                             </div>
                         </div>
@@ -126,7 +126,7 @@
                                 $nextConversion = $next ? (float) $next->conversion_to_base : 1.0;
                                 $relativeQty = $next ? round((float) $unit->conversion_to_base / max($nextConversion, 0.000001), 3) : 1.0;
                                 $relativeUnitName = $next ? $next->unit_name : $unit->unit_name;
-                                $relativeQtyText = rtrim(rtrim(number_format($relativeQty, 3, '.', ''), '0'), '.');
+                                $relativeQtyText = \App\Support\Number::trim($relativeQty);
                             @endphp
                             <tr>
                                 <td class="px-4 py-3 font-medium text-gray-900">{{ $unit->unit_name }}</td>

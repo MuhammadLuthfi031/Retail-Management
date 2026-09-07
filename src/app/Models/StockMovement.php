@@ -57,6 +57,16 @@ class StockMovement extends Model
      * `quantity` selalu nilai absolut (selaras dengan komentar di migration:
      * "selalu positif, arah ditentukan oleh type").
      *
+     * PENTING (konkurensi): baris produk dikunci (`lockForUpdate`) SELAMA
+     * transaksi ini berjalan. Tanpa ini, 2 proses yang mengubah stok produk
+     * yang SAMA nyaris bersamaan (misal 2 staf Gudang input stok keluar di
+     * waktu berdekatan, atau nanti beberapa kasir POS jual produk yang sama)
+     * bisa sama-sama baca `stock` lama sebelum salah satunya selesai menulis
+     * — yang commit belakangan akan diam-diam menimpa balik hasil yang lain
+     * tanpa ada error apa pun ("lost update"). Dengan lock ini, proses kedua
+     * otomatis menunggu proses pertama commit dulu, baru baca stok yang
+     * sudah ter-update, sehingga selalu berbasis angka yang benar.
+     *
      * @param  int|null  $unitCost  Harga pokok per satuan dasar SAAT stok masuk ini terjadi.
      *                              Hanya isi untuk type 'in' yang berasal dari pembelian —
      *                              akan otomatis memicu perhitungan ulang average_cost produk.
@@ -71,7 +81,13 @@ class StockMovement extends Model
         ?int $unitCost = null
     ): self {
         return DB::transaction(function () use ($product, $type, $quantity, $userId, $reference, $note, $unitCost) {
-            $stockBefore = (float) $product->stock;
+            // Kunci baris produk ini di database sampai transaksi selesai
+            // (commit/rollback) — proses lain yang juga panggil record() untuk
+            // product_id yang sama akan menunggu di titik ini, bukan jalan
+            // paralel dengan basis data yang sama-sama basi.
+            $locked = Product::whereKey($product->id)->lockForUpdate()->firstOrFail();
+
+            $stockBefore = (float) $locked->stock;
 
             if ($type === 'adjustment') {
                 $isIncrease = $quantity >= 0;
@@ -84,7 +100,7 @@ class StockMovement extends Model
             $stockAfter = $isIncrease ? $stockBefore + $absQuantity : $stockBefore - $absQuantity;
 
             $movement = self::create([
-                'product_id' => $product->id,
+                'product_id' => $locked->id,
                 'user_id' => $userId,
                 'type' => $type,
                 'quantity' => $absQuantity,
@@ -99,10 +115,17 @@ class StockMovement extends Model
 
             // Hitung ulang harga pokok rata-rata HANYA kalau ini stok masuk dengan info harga
             if ($type === 'in' && $unitCost !== null) {
-                $updateData['average_cost'] = $product->recalculateAverageCost($absQuantity, $unitCost);
+                $updateData['average_cost'] = $locked->recalculateAverageCost($absQuantity, $unitCost);
             }
 
-            $product->update($updateData);
+            $locked->update($updateData);
+
+            // Sinkronkan balik ke instance $product yang dipegang caller (bukan
+            // $locked yang cuma lokal di sini), supaya kode SETELAH pemanggilan
+            // record() ini — termasuk caller yang loop banyak item untuk produk
+            // yang sama, lihat PurchaseReceiptController::store() — selalu
+            // melihat kondisi stok/harga pokok yang paling baru.
+            $product->setRawAttributes($locked->getAttributes(), true);
 
             return $movement;
         });

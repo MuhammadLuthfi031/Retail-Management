@@ -50,9 +50,9 @@
                                 <tr>
                                     <td class="px-4 py-3 font-medium text-gray-900">{{ $item->product->name }}</td>
                                     <td class="px-4 py-3 text-gray-500">{{ $item->productUnit->unit_name }}</td>
-                                    <td class="px-4 py-3 text-right text-gray-500">{{ rtrim(rtrim(number_format((float) $item->quantity_ordered, 3, '.', ''), '0'), '.') }}</td>
-                                    <td class="px-4 py-3 text-right text-gray-500">{{ rtrim(rtrim(number_format((float) $item->quantity_received, 3, '.', ''), '0'), '.') }}</td>
-                                    <td class="px-4 py-3 text-right text-gray-500">{{ rtrim(rtrim(number_format($remaining, 3, '.', ''), '0'), '.') }}</td>
+                                    <td class="px-4 py-3 text-right text-gray-500">{{ \App\Support\Number::trim((float) $item->quantity_ordered) }}</td>
+                                    <td class="px-4 py-3 text-right text-gray-500">{{ \App\Support\Number::trim((float) $item->quantity_received) }}</td>
+                                    <td class="px-4 py-3 text-right text-gray-500">{{ \App\Support\Number::trim($remaining) }}</td>
                                     <td class="px-4 py-3 text-right">
                                         @if ($remaining > 0)
                                             <input type="number" step="0.001" min="0" max="{{ $remaining }}"

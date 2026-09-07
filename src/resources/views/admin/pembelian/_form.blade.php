@@ -16,7 +16,7 @@
             'id' => $item->id,
             'product_id' => $item->product_id,
             'product_unit_id' => $item->product_unit_id,
-            'quantity_ordered' => rtrim(rtrim(number_format((float) $item->quantity_ordered, 3, '.', ''), '0'), '.'),
+            'quantity_ordered' => \App\Support\Number::trim((float) $item->quantity_ordered),
             'unit_price' => $item->unit_price,
             'subtotal' => $item->subtotal,
         ]);

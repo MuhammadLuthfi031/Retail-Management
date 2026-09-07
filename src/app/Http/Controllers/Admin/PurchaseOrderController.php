@@ -199,9 +199,21 @@ class PurchaseOrderController extends Controller
     }
 
     /** Data produk + satuan-satuannya, untuk dipakai JS mengisi dropdown satuan pembelian secara dinamis. */
+    /**
+     * Data produk + satuan-satuannya untuk dropdown dinamis di form PO.
+     * Cuma ambil kolom yang benar-benar dipakai JS (id, nama, status satuan
+     * beli) — sebelumnya eager-load `units` menarik SEMUA kolom (barcode,
+     * harga jual, sort_order, timestamps, dst) yang tidak pernah dipakai di
+     * sini, memperbesar query & ukuran JSON yang dikirim ke browser tanpa
+     * manfaat. Method ini tetap jalan di setiap load index/show PO (bukan
+     * di-cache) supaya produk yang baru saja ditambahkan langsung muncul di
+     * dropdown tanpa jeda — untuk skala 1 toko, query ini masih ringan;
+     * kalau katalog produk sudah sangat besar, opsi lanjutannya adalah ganti
+     * jadi pencarian AJAX (mirip yang nanti dibutuhkan Modul Kasir juga).
+     */
     private function productsForForm()
     {
-        return Product::with(['units' => fn ($q) => $q->orderBy('sort_order')])
+        return Product::with(['units' => fn ($q) => $q->orderBy('sort_order')->select(['id', 'product_id', 'unit_name', 'is_purchase_unit'])])
             ->active()
             ->orderBy('name')
             ->get(['id', 'name', 'sku'])

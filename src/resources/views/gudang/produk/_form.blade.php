@@ -41,7 +41,7 @@
             $nextConversion = $isLastPos ? 1.0 : (float) $dbUnits[$i + 1]->conversion_to_base;
             $relative = $isLastPos || $nextConversion <= 0
                 ? ''
-                : rtrim(rtrim(number_format(((float) $unit->conversion_to_base) / $nextConversion, 3, '.', ''), '0'), '.');
+                : \App\Support\Number::trim(((float) $unit->conversion_to_base) / $nextConversion);
 
             return (object) [
                 'id' => $unit->id,
@@ -181,7 +181,7 @@
         <div>
             <x-input-label value="Stok Saat Ini" />
             <div class="mt-1 px-3 py-2 rounded-md bg-gray-50 border border-gray-200 text-gray-600 text-sm">
-                {{ rtrim(rtrim(number_format((float) $product->stock, 3, '.', ''), '0'), '.') }} {{ $product->baseUnit->unit_name ?? '' }}
+                {{ \App\Support\Number::trim((float) $product->stock) }} {{ $product->baseUnit->unit_name ?? '' }}
             </div>
             <p class="mt-1 text-xs text-gray-400">
                 Perubahan stok dikelola di menu <a href="{{ route('gudang.stok.index') }}" class="text-indigo-600 hover:underline">Stok</a> / Pembelian.

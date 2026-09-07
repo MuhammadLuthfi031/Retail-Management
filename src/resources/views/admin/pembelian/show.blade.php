@@ -123,7 +123,7 @@
                             <tr>
                                 <td class="px-4 py-3 font-medium text-gray-900">{{ $item->product->name }}</td>
                                 <td class="px-4 py-3 text-gray-500">{{ $item->productUnit->unit_name }}</td>
-                                <td class="px-4 py-3 text-right text-gray-500">{{ rtrim(rtrim(number_format((float) $item->quantity_ordered, 3, '.', ''), '0'), '.') }}</td>
+                                <td class="px-4 py-3 text-right text-gray-500">{{ \App\Support\Number::trim((float) $item->quantity_ordered) }}</td>
                                 <td class="px-4 py-3 text-right">
                                     <span @class([
                                         'font-medium',
@@ -131,7 +131,7 @@
                                         'text-amber-600' => $item->quantity_received > 0 && ! $item->isFullyReceived(),
                                         'text-gray-400' => $item->quantity_received == 0,
                                     ])>
-                                        {{ rtrim(rtrim(number_format((float) $item->quantity_received, 3, '.', ''), '0'), '.') }}
+                                        {{ \App\Support\Number::trim((float) $item->quantity_received) }}
                                     </span>
                                 </td>
                                 <td class="px-4 py-3 text-right text-gray-500">Rp {{ number_format($item->unit_price, 0, ',', '.') }}</td>

@@ -6,6 +6,7 @@ use App\Http\Controllers\Controller;
 use App\Models\Category;
 use App\Models\Product;
 use App\Models\StockMovement;
+use App\Support\Number;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Illuminate\View\View;
@@ -53,7 +54,7 @@ class StockController extends Controller
             'quantity' => ['required', 'numeric', 'min:0.001', 'max:' . (float) $product->stock],
             'note' => ['required', 'string', 'max:500'],
         ], [
-            'quantity.max' => 'Qty keluar tidak boleh melebihi stok yang ada (' . rtrim(rtrim(number_format((float) $product->stock, 3, '.', ''), '0'), '.') . ').',
+            'quantity.max' => 'Qty keluar tidak boleh melebihi stok yang ada (' . Number::trim((float) $product->stock) . ').',
         ]);
 
         StockMovement::record(
@@ -73,7 +74,7 @@ class StockController extends Controller
             'quantity' => ['required', 'numeric', 'min:0.001', 'max:' . (float) $product->stock],
             'note' => ['required', 'string', 'max:500'],
         ], [
-            'quantity.max' => 'Qty mutasi tidak boleh melebihi stok yang ada (' . rtrim(rtrim(number_format((float) $product->stock, 3, '.', ''), '0'), '.') . ').',
+            'quantity.max' => 'Qty mutasi tidak boleh melebihi stok yang ada (' . Number::trim((float) $product->stock) . ').',
         ]);
 
         StockMovement::record(

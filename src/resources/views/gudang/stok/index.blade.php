@@ -158,7 +158,7 @@
                                     <x-input-label value="Stok Fisik Hasil Hitung (satuan dasar: {{ $product->baseUnit->unit_name ?? '-' }})" />
                                     @php $oldPhysical = old('form_id') === 'stok-opname-' . $product->id ? old('physical_stock') : null; @endphp
                                     <x-text-input type="number" step="0.001" min="0" name="physical_stock"
-                                                  value="{{ $oldPhysical ?? rtrim(rtrim(number_format((float) $product->stock, 3, '.', ''), '0'), '.') }}"
+                                                  value="{{ $oldPhysical ?? \App\Support\Number::trim((float) $product->stock) }}"
                                                   class="mt-1 block w-full" required />
                                     <p class="mt-1 text-xs text-gray-400">Stok menurut sistem: {{ $product->formatStock((float) $product->stock) }}</p>
 

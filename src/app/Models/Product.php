@@ -2,6 +2,7 @@
 
 namespace App\Models;
 
+use App\Support\Number;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
@@ -180,14 +181,13 @@ class Product extends Model
         // lewat relasi baseUnit() terpisah), supaya cukup satu relasi ('units')
         // saja yang perlu di-eager-load oleh controller pemanggil.
         $base = $this->units->firstWhere('is_base_unit', true);
-        $trim = fn (float $n) => rtrim(rtrim(number_format($n, 3, '.', ''), '0'), '.');
 
         if (! $base) {
-            return $trim($quantity);
+            return Number::trim($quantity);
         }
 
         return collect($this->stockBreakdown($quantity))
-            ->map(fn ($row) => $trim($row['qty']) . ' ' . $row['unit_name'])
+            ->map(fn ($row) => Number::trim($row['qty']) . ' ' . $row['unit_name'])
             ->implode(' ');
     }
 }
