@@ -18,7 +18,7 @@ class ProductController extends Controller
 {
     public function index(Request $request): View
     {
-        $products = Product::with(['category', 'units'])
+        $products = Product::with(['category', 'units' => fn ($q) => $q->orderByDesc('conversion_to_base')->orderBy('sort_order')])
             ->when($request->search, function ($q) use ($request) {
                 $q->where(function ($q2) use ($request) {
                     $q2->where('name', 'like', "%{$request->search}%")
@@ -41,10 +41,25 @@ class ProductController extends Controller
 
     public function show(Product $product): View
     {
-        $product->load(['category', 'units' => fn ($q) => $q->orderBy('sort_order')]);
-        $categories = Category::orderBy('name')->get();   // <- tambahkan ini
+        // PENTING: urutkan berdasarkan conversion_to_base TERBESAR ke TERKECIL,
+        // BUKAN kolom sort_order. Alasannya: produk yang dibuat SEBELUM sistem
+        // "baris paling bawah = satuan dasar" ini ada (data lama/legacy) bisa
+        // saja punya urutan sort_order yang tidak menaruh satuan dasarnya di
+        // posisi terakhir — kalau kita tetap pakai sort_order, form Edit akan
+        // menampilkan (dan submit ulang) satuan dalam urutan yang salah, lalu
+        // proteksi "satuan dasar tidak boleh berubah" di update() akan salah
+        // duga produknya "mau diubah satuan dasarnya" padahal user cuma mau
+        // ubah field lain (misal status aktif) — akibatnya SELURUH update
+        // ditolak. Mengurutkan dari conversion_to_base selalu menaruh satuan
+        // dasar (nilainya selalu 1, angka terkecil yang mungkin) di posisi
+        // PALING BAWAH secara konsisten, apa pun nilai sort_order-nya —
+        // sekaligus jadi "self-healing": begitu produk ini disimpan ulang
+        // (edit apa saja), sort_order-nya otomatis diperbaiki mengikuti
+        // urutan submit yang sekarang sudah benar (lihat extractUnits()).
+        $product->load(['category', 'units' => fn ($q) => $q->orderByDesc('conversion_to_base')->orderBy('sort_order')]);
+        $categories = Category::orderBy('name')->get();
 
-        return view('gudang.produk.show', compact('product', 'categories'));   // <- + categories
+        return view('gudang.produk.show', compact('product', 'categories'));
     }
 
     public function store(Request $request): RedirectResponse
