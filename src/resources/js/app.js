@@ -1,4 +1,5 @@
 
+import './prevent-double-submit';
 import './image-preview';
 import './barcode-scanner-shared';
 import './unit-rows';

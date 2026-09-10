@@ -44,13 +44,22 @@ class PurchaseReceiptController extends Controller
             return back()->with('error', 'PO ini tidak sedang menunggu penerimaan.');
         }
 
-        $pembelian->load('items.product', 'items.productUnit');
-
         $rawQuantities = $request->input('received', []); // [po_item_id => qty_diterima_sekarang]
         $anyProcessed = false;
 
         DB::transaction(function () use ($pembelian, $rawQuantities, &$anyProcessed) {
-            foreach ($pembelian->items as $item) {
+            // PENTING (race condition / double-submit): kunci ULANG PO ini beserta
+            // semua item-nya DI SINI, di dalam transaksi — bukan pakai instance
+            // $pembelian dari route-model-binding yang di-resolve SEBELUM transaksi
+            // dimulai (dan sebelum ada lock apa pun). Tanpa ini, klik dobel tombol
+            // "Konfirmasi" atau 2 tab browser bisa membuat kedua request sama-sama
+            // baca quantity_received yang SAMA (belum ter-update satu sama lain),
+            // sama-sama lolos validasi "tidak melebihi sisa" di bawah, dan qty
+            // diterima tercatat 2x untuk 1 kali barang datang secara fisik.
+            $locked = PurchaseOrder::whereKey($pembelian->id)->lockForUpdate()->firstOrFail();
+            $items = $locked->items()->lockForUpdate()->with(['product', 'productUnit'])->get();
+
+            foreach ($items as $item) {
                 $qtyNow = (float) ($rawQuantities[$item->id] ?? 0);
 
                 if ($qtyNow <= 0) {
@@ -74,8 +83,8 @@ class PurchaseReceiptController extends Controller
                     type: 'in',
                     quantity: $qtyBase,
                     userId: auth()->id(),
-                    reference: "PO:{$pembelian->po_number}",
-                    note: "Penerimaan barang PO {$pembelian->po_number} ({$qtyNow} {$item->productUnit->unit_name})",
+                    reference: "PO:{$locked->po_number}",
+                    note: "Penerimaan barang PO {$locked->po_number} ({$qtyNow} {$item->productUnit->unit_name})",
                     unitCost: $unitCostPerBase,
                 );
 
@@ -90,12 +99,12 @@ class PurchaseReceiptController extends Controller
                 throw ValidationException::withMessages(['received' => 'Isi minimal 1 qty penerimaan sebelum konfirmasi.']);
             }
 
-            $pembelian->refresh();
-            $allFullyReceived = $pembelian->items->every(fn ($i) => $i->isFullyReceived());
-            $anyReceived = $pembelian->items->contains(fn ($i) => $i->quantity_received > 0);
+            $locked->refresh();
+            $allFullyReceived = $locked->items->every(fn ($i) => $i->isFullyReceived());
+            $anyReceived = $locked->items->contains(fn ($i) => $i->quantity_received > 0);
 
-            $pembelian->update([
-                'status' => $allFullyReceived ? 'received' : ($anyReceived ? 'partially_received' : $pembelian->status),
+            $locked->update([
+                'status' => $allFullyReceived ? 'received' : ($anyReceived ? 'partially_received' : $locked->status),
             ]);
         });
 

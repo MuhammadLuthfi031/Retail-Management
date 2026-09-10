@@ -205,6 +205,7 @@
     <!-- Fractional sale -->
     <div class="flex items-center pt-6">
         <label class="flex items-center gap-2 text-sm text-gray-700">
+            <input type="hidden" name="allow_fractional_sale" value="0">
             <input type="checkbox" name="allow_fractional_sale" value="1" data-fractional-checkbox="{{ $formId }}"
                    @checked(old('allow_fractional_sale', $product->allow_fractional_sale ?? false))
                    class="rounded border-gray-300 text-indigo-600 focus:ring-indigo-500">
@@ -224,6 +225,12 @@
     <!-- Status Aktif -->
     <div class="flex items-center pt-6">
         <label class="flex items-center gap-2 text-sm text-gray-700">
+            {{-- Hidden input SEBELUM checkbox: browser tidak mengirim field checkbox
+                 sama sekali kalau di-uncheck, jadi tanpa ini server tidak bisa beda-
+                 kan "sengaja di-uncheck" vs "field memang tidak ada". Urutan (hidden
+                 dulu, checkbox sesudah) penting: kalau checked, browser kirim "0" lalu
+                 "1" untuk name yang sama, dan PHP ambil nilai TERAKHIR = "1". --}}
+            <input type="hidden" name="is_active" value="0">
             <input type="checkbox" name="is_active" value="1" @checked(old('is_active', $product->is_active ?? true))
                    class="rounded border-gray-300 text-indigo-600 focus:ring-indigo-500">
             Produk aktif (tampil di POS kasir)

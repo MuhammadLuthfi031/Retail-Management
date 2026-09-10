@@ -68,8 +68,14 @@ class ProductController extends Controller
         $units = $this->extractUnits($request);
 
         $validated['sku'] = $validated['sku'] ?: $this->generateSku();
-        $validated['is_active'] = $request->boolean('is_active', true);
-        $validated['allow_fractional_sale'] = $request->boolean('allow_fractional_sale', false);
+        // Form sudah kirim hidden input fallback ("0") sebelum kedua checkbox ini
+        // (lihat _form.blade.php), jadi field SELALU ada di request — tidak perlu
+        // (dan tidak boleh) diberi default di sini. Sebelumnya is_active diberi
+        // default(true) yang membuatnya TIDAK PERNAH bisa tersimpan false, karena
+        // saat checkbox di-uncheck field memang absen dan langsung jatuh ke
+        // default(true) itu, sama seperti saat checkbox dicentang.
+        $validated['is_active'] = $request->boolean('is_active');
+        $validated['allow_fractional_sale'] = $request->boolean('allow_fractional_sale');
 
         if ($request->hasFile('image')) {
             $validated['image'] = $request->file('image')->store('products', 'public');
@@ -129,8 +135,10 @@ class ProductController extends Controller
         }
 
         $validated['sku'] = $validated['sku'] ?: $product->sku;
-        $validated['is_active'] = $request->boolean('is_active', true);
-        $validated['allow_fractional_sale'] = $request->boolean('allow_fractional_sale', false);
+        // Lihat catatan panjang di store() — field ini selalu ada di request
+        // berkat hidden input fallback di form, jangan diberi default lagi.
+        $validated['is_active'] = $request->boolean('is_active');
+        $validated['allow_fractional_sale'] = $request->boolean('allow_fractional_sale');
 
         // Cara jual (tracking_mode) TIDAK boleh diubah setelah produk dibuat —
         // supaya riwayat stok & transaksi lama tetap konsisten secara historis.
@@ -307,8 +315,28 @@ class ProductController extends Controller
 
             if ($id) {
                 $unit = ProductUnit::find($id);
-                $unit?->update($unitData);
+
                 if ($unit) {
+                    // PENTING (data-integrity): rasio konversi yang sudah dipakai di
+                    // Purchase Order tidak boleh diam-diam berubah — unit_price &
+                    // subtotal PO lama dihitung berdasarkan rasio SAAT itu, dan
+                    // recalculateAverageCost() juga sudah memakainya untuk hitung
+                    // harga pokok. Kalau rasio berubah belakangan, riwayat itu jadi
+                    // tidak konsisten dengan kondisi produk yang sekarang, padahal
+                    // datanya sendiri tidak salah — cuma jadi tidak bisa dipercaya.
+                    // Field lain (nama, harga jual, barcode) tetap bebas diubah,
+                    // cuma conversion_to_base yang dikunci di sini.
+                    $conversionChanged = abs(
+                        (float) $unit->conversion_to_base - (float) $unitData['conversion_to_base']
+                    ) > 0.0005;
+
+                    if ($conversionChanged && $unit->purchaseOrderItems()->exists()) {
+                        throw ValidationException::withMessages([
+                            'units' => "Rasio/isi satuan \"{$unit->unit_name}\" tidak bisa diubah karena sudah dipakai di Purchase Order — mengubahnya akan membuat riwayat harga beli & qty PO lama jadi tidak konsisten dengan kondisi produk sekarang. Kalau rasionya memang salah dari awal, tambahkan sebagai satuan baru dan kosongkan harga jual satuan lama.",
+                        ]);
+                    }
+
+                    $unit->update($unitData);
                     $keepIds[] = $unit->id;
                 }
             } else {

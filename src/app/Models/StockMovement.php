@@ -5,6 +5,7 @@ namespace App\Models;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Validation\ValidationException;
 
 class StockMovement extends Model
 {
@@ -98,6 +99,19 @@ class StockMovement extends Model
             }
 
             $stockAfter = $isIncrease ? $stockBefore + $absQuantity : $stockBefore - $absQuantity;
+
+            // PENTING (race condition): validasi "qty tidak boleh melebihi stok" di
+            // controller (StockController dsb) dibaca SEBELUM baris produk terkunci
+            // di atas — kalau 2 request nyaris bersamaan (double-klik, atau nanti 2
+            // kasir), keduanya bisa lolos validasi itu berbasis stok yang sama-sama
+            // basi. Guard di sini jalan SETELAH lock didapat, jadi ini benteng
+            // terakhir yang tidak bisa dilewati siapa pun — memastikan stok tidak
+            // pernah minus apa pun jalur/urutan request yang masuk.
+            if (! $isIncrease && $stockAfter < -0.0005) {
+                throw ValidationException::withMessages([
+                    'quantity' => "Stok tidak cukup untuk operasi ini. Stok saat ini: {$stockBefore}, diminta: {$absQuantity}.",
+                ]);
+            }
 
             $movement = self::create([
                 'product_id' => $locked->id,

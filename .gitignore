@@ -1,0 +1,14 @@
+# Konfigurasi lokal Docker Compose — JANGAN pernah di-commit, isinya kredensial
+# lokal (DB_PASSWORD, dll). Copy dari .env.docker.example untuk mulai.
+.env
+.env.docker
+.env.*.local
+
+# OS / editor
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/
+
+# Node (kalau ada tooling di root, bukan di src/)
+node_modules/

@@ -131,4 +131,11 @@
 </template>
 
 <!-- Data produk + satuan untuk JS (dropdown satuan dinamis mengikuti produk yang dipilih) -->
-<script type="application/json" data-products-data="{{ $formId }}">{!! json_encode($products) !!}</script>
+{{-- PENTING (keamanan): WAJIB pakai flag JSON_HEX_* di sini. Tanpa flag ini,
+     nama produk yang mengandung "</script>" akan MEMUTUS tag <script> ini di
+     level parser HTML (bukan soal type="application/json"-nya) dan bisa
+     dipakai menyuntik JavaScript arbitrer ke halaman ini — Gudang (pembuat
+     nama produk) berpotensi menjalankan script di browser Admin. Flag ini
+     mengubah karakter <, >, &, ' jadi escape unicode (\uXXXX) yang tetap
+     valid dibaca JSON.parse() tapi tidak bisa memutus tag HTML apa pun. --}}
+<script type="application/json" data-products-data="{{ $formId }}">{!! json_encode($products, JSON_HEX_TAG | JSON_HEX_AMP | JSON_HEX_APOS | JSON_HEX_QUOT) !!}</script>
