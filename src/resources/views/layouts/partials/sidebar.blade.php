@@ -69,6 +69,11 @@
                 <x-icon name="cart" />
                 POS
             </a>
+            <a href="{{ route('kasir.riwayat') }}"
+               class="flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium transition {{ $navLink('kasir.riwayat*', '', '')['classes'] }}">
+                <x-icon name="archive" />
+                Riwayat Transaksi
+            </a>
         @endif
 
         @if (auth()->user()->isAdmin())

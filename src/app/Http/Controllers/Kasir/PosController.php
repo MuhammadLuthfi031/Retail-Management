@@ -1,0 +1,309 @@
+<?php
+
+namespace App\Http\Controllers\Kasir;
+
+use App\Http\Controllers\Controller;
+use App\Models\Product;
+use App\Models\ProductUnit;
+use App\Models\StockMovement;
+use App\Models\Transaction;
+use Illuminate\Http\JsonResponse;
+use Illuminate\Http\Request;
+use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Storage;
+use Illuminate\Validation\ValidationException;
+use Illuminate\View\View;
+
+/**
+ * Modul Kasir (POS).
+ * - Tahap 1: pencarian produk (nama/SKU/barcode) & bangun keranjang di client.
+ * - Tahap 2: diskon per item & validasi stok (di sisi tampilan/client).
+ * - Tahap 3: checkout() — di sinilah transaksi BENAR-BENAR disimpan ke DB
+ *   dan stok BENAR-BENAR dipotong. Semua yang dikirim client (harga,
+ *   subtotal, diskon) dianggap TIDAK TERPERCAYA dan dihitung ULANG di sini
+ *   dari data produk/satuan yang diambil fresh dari database — client cuma
+ *   boleh menentukan product_id, unit_id, qty, dan diskon yang DIAJUKAN.
+ *
+ * PENTING soal satuan yang boleh dijual (lihat migration product_units):
+ * `selling_price` di sebuah baris satuan bisa NULL, artinya satuan itu cuma
+ * dipakai untuk pembelian (mis. "dus" cuma satuan beli dari supplier, tidak
+ * pernah dijual utuh ke pembeli). Semua query di sini WAJIB memfilter hanya
+ * satuan dengan `selling_price` terisi — kalau tidak, kasir bisa "berhasil"
+ * menjual satuan yang harusnya tidak boleh dijual langsung, dengan harga
+ * null/0.
+ */
+class PosController extends Controller
+{
+    public function index(): View
+    {
+        return view('kasir.pos');
+    }
+
+    /**
+     * Pencarian manual (fallback) by nama/SKU — dipakai live-search saat
+     * kasir mengetik nama produk. Kembalikan hanya produk yang punya
+     * MINIMAL 1 satuan yang boleh dijual (selling_price terisi).
+     */
+    public function search(Request $request): JsonResponse
+    {
+        $q = trim((string) $request->query('q', ''));
+
+        if (mb_strlen($q) < 2) {
+            return response()->json(['data' => []]);
+        }
+
+        $products = Product::query()
+            ->active()
+            ->whereHas('units', fn ($u) => $u->whereNotNull('selling_price'))
+            ->with(['units' => fn ($u) => $u->whereNotNull('selling_price')->orderByDesc('conversion_to_base')])
+            ->where(function ($query) use ($q) {
+                $query->where('name', 'like', "%{$q}%")
+                    ->orWhere('sku', 'like', "%{$q}%");
+            })
+            ->orderBy('name')
+            ->limit(15)
+            ->get();
+
+        return response()->json([
+            'data' => $products->map(fn (Product $p) => $this->formatProduct($p)),
+        ]);
+    }
+
+    /**
+     * Lookup EXACT by kode — dipakai scanner USB/kamera/upload foto (semua
+     * ujung-ujungnya kirim string kode ke sini) dan saat kasir ketik barcode
+     * manual lalu tekan Enter.
+     *
+     * Urutan pencarian:
+     *  1) Barcode di level SATUAN (paling spesifik — barcode dus != barcode
+     *     sachet dari pabrik, § 3.2 spesifikasi). Kalau ketemu tapi satuan
+     *     itu tidak boleh dijual (selling_price null), tolak dengan pesan
+     *     jelas — JANGAN fallback diam-diam ke satuan lain, supaya kasir
+     *     tidak salah kira sedang menjual satuan yang benar.
+     *  2) Fallback: SKU produk (untuk produk tanpa barcode fisik).
+     */
+    public function lookup(string $code): JsonResponse
+    {
+        $code = trim($code);
+
+        $unit = ProductUnit::where('barcode', $code)
+            ->with(['product' => fn ($q) => $q->active()])
+            ->first();
+
+        if ($unit && $unit->product) {
+            if ($unit->selling_price === null) {
+                return response()->json([
+                    'message' => "Satuan \"{$unit->unit_name}\" tidak dijual langsung (cuma satuan beli). Cek satuan lain untuk produk ini lewat pencarian nama.",
+                ], 422);
+            }
+
+            $unit->product->setRelation(
+                'units',
+                $unit->product->units()->whereNotNull('selling_price')->orderByDesc('conversion_to_base')->get()
+            );
+
+            return response()->json([
+                'data' => $this->formatProduct($unit->product),
+                'matched_unit_id' => $unit->id,
+            ]);
+        }
+
+        $product = Product::query()
+            ->active()
+            ->where('sku', $code)
+            ->whereHas('units', fn ($u) => $u->whereNotNull('selling_price'))
+            ->with(['units' => fn ($u) => $u->whereNotNull('selling_price')->orderByDesc('conversion_to_base')])
+            ->first();
+
+        if ($product) {
+            return response()->json([
+                'data' => $this->formatProduct($product),
+                'matched_unit_id' => null,
+            ]);
+        }
+
+        return response()->json([
+            'message' => "Produk dengan kode \"{$code}\" tidak ditemukan.",
+        ], 404);
+    }
+
+    /**
+     * Proses transaksi penjualan: hitung ulang semua harga/diskon dari data
+     * server (BUKAN dari angka yang dikirim client), simpan Transaction +
+     * TransactionDetail (dengan snapshot satuan & rasio konversi), lalu
+     * potong stok lewat StockMovement::record() (type 'sale') yang sudah
+     * punya lock + guard anti-stok-minus dari perbaikan sebelumnya.
+     *
+     * Kalau salah satu baris gagal (stok kurang, satuan tidak boleh dijual,
+     * dll), SELURUH transaksi dibatalkan (DB::transaction rollback) — tidak
+     * ada skenario "separuh item berhasil separuh gagal".
+     */
+    public function checkout(Request $request): JsonResponse
+    {
+        $validated = $request->validate([
+            'items' => ['required', 'array', 'min:1'],
+            'items.*.product_id' => ['required', 'integer'],
+            'items.*.unit_id' => ['required', 'integer'],
+            'items.*.qty' => ['required', 'numeric', 'min:0.001'],
+            'items.*.discount_type' => ['nullable', 'in:nominal,percent'],
+            'items.*.discount_value' => ['nullable', 'numeric', 'min:0'],
+            'payment_method' => ['required', 'in:cash,debit,qris,transfer'],
+            'paid_amount' => ['required', 'integer', 'min:0'],
+        ]);
+
+        $transaction = DB::transaction(function () use ($validated) {
+            $totalAmount = 0;   // gross, sebelum diskon
+            $totalDiscount = 0;
+            $lines = [];
+
+            foreach ($validated['items'] as $item) {
+                // lockForUpdate di sini + lock lagi di dalam StockMovement::record()
+                // di bawah aman (savepoint bersarang, koneksi & lock yang sama).
+                $unit = ProductUnit::with('product')->lockForUpdate()->find($item['unit_id']);
+
+                if (! $unit || ! $unit->product || $unit->product_id !== (int) $item['product_id']) {
+                    throw ValidationException::withMessages([
+                        'items' => 'Salah satu produk di keranjang sudah tidak valid. Muat ulang halaman dan coba lagi.',
+                    ]);
+                }
+                if ($unit->selling_price === null) {
+                    throw ValidationException::withMessages([
+                        'items' => "Satuan \"{$unit->unit_name}\" untuk \"{$unit->product->name}\" tidak dijual langsung.",
+                    ]);
+                }
+                if (! $unit->product->is_active) {
+                    throw ValidationException::withMessages([
+                        'items' => "Produk \"{$unit->product->name}\" sedang nonaktif, tidak bisa dijual.",
+                    ]);
+                }
+
+                $qty = (float) $item['qty'];
+                if (! $unit->product->allow_fractional_sale && abs($qty - round($qty)) > 0.0001) {
+                    throw ValidationException::withMessages([
+                        'items' => "Produk \"{$unit->product->name}\" tidak boleh dijual dengan kuantitas pecahan.",
+                    ]);
+                }
+
+                $gross = (int) round($unit->selling_price * $qty);
+                $discountAmount = $this->computeDiscount(
+                    $gross,
+                    $item['discount_type'] ?? null,
+                    (float) ($item['discount_value'] ?? 0)
+                );
+                $subtotal = $gross - $discountAmount;
+
+                $totalAmount += $gross;
+                $totalDiscount += $discountAmount;
+
+                $lines[] = [
+                    'product' => $unit->product,
+                    'unit' => $unit,
+                    'qty' => $qty,
+                    'price' => (int) $unit->selling_price,
+                    'discount_amount' => $discountAmount,
+                    'subtotal' => $subtotal,
+                ];
+            }
+
+            $grandTotal = $totalAmount - $totalDiscount;
+            $isCash = $validated['payment_method'] === 'cash';
+
+            if ($isCash && $validated['paid_amount'] < $grandTotal) {
+                throw ValidationException::withMessages([
+                    'paid_amount' => 'Uang diterima kurang dari total belanja.',
+                ]);
+            }
+
+            $paidAmount = $isCash ? $validated['paid_amount'] : $grandTotal;
+            $changeAmount = $isCash ? $paidAmount - $grandTotal : 0;
+
+            $transaction = Transaction::create([
+                'invoice_number' => Transaction::generateInvoiceNumber(),
+                'user_id' => auth()->id(),
+                'total_amount' => $totalAmount,
+                'discount_amount' => $totalDiscount,
+                'grand_total' => $grandTotal,
+                'paid_amount' => $paidAmount,
+                'change_amount' => $changeAmount,
+                'payment_method' => $validated['payment_method'],
+                'status' => 'completed',
+            ]);
+
+            foreach ($lines as $line) {
+                $transaction->details()->create([
+                    'product_id' => $line['product']->id,
+                    'product_name' => $line['product']->name,
+                    'unit_name' => $line['unit']->unit_name,
+                    'unit_conversion' => $line['unit']->conversion_to_base,
+                    'price' => $line['price'],
+                    'discount_amount' => $line['discount_amount'],
+                    'quantity' => $line['qty'],
+                    'subtotal' => $line['subtotal'],
+                ]);
+
+                // Kuantitas jual (dalam satuan yang dipilih kasir) WAJIB
+                // dikonversi ke satuan dasar dulu sebelum memotong stok —
+                // StockMovement::record() selalu bekerja di satuan dasar.
+                $qtyInBase = round($line['qty'] * $line['unit']->conversion_to_base, 3);
+
+                StockMovement::record(
+                    product: $line['product'],
+                    type: 'sale',
+                    quantity: $qtyInBase,
+                    userId: auth()->id(),
+                    reference: $transaction->invoice_number,
+                    note: "Penjualan POS: {$line['qty']} {$line['unit']->unit_name}",
+                );
+            }
+
+            return $transaction;
+        });
+
+        return response()->json([
+            'message' => 'Transaksi berhasil disimpan.',
+            'data' => [
+                'id' => $transaction->id,
+                'invoice_number' => $transaction->invoice_number,
+                'total_amount' => $transaction->total_amount,
+                'discount_amount' => $transaction->discount_amount,
+                'grand_total' => $transaction->grand_total,
+                'paid_amount' => $transaction->paid_amount,
+                'change_amount' => $transaction->change_amount,
+                'payment_method' => $transaction->payment_method,
+                'created_at' => $transaction->created_at->toIso8601String(),
+            ],
+        ], 201);
+    }
+
+    /** Sama persis dengan logika di frontend (kasir-pos.js computeLineAmounts) — SENGAJA diduplikasi, bukan dipercaya dari client. */
+    private function computeDiscount(int $gross, ?string $type, float $value): int
+    {
+        $amount = match ($type) {
+            'percent' => (int) round($gross * (min(100, max(0, $value)) / 100)),
+            'nominal' => (int) round(max(0, $value)),
+            default => 0,
+        };
+
+        return min($amount, $gross);
+    }
+
+    private function formatProduct(Product $product): array
+    {
+        return [
+            'id' => $product->id,
+            'name' => $product->name,
+            'sku' => $product->sku,
+            'tracking_mode' => $product->tracking_mode,
+            'allow_fractional_sale' => (bool) $product->allow_fractional_sale,
+            'stock' => (float) $product->stock,
+            'image_url' => $product->image ? Storage::url($product->image) : null,
+            'units' => $product->units->map(fn (ProductUnit $u) => [
+                'id' => $u->id,
+                'unit_name' => $u->unit_name,
+                'selling_price' => (int) $u->selling_price,
+                'conversion_to_base' => (float) $u->conversion_to_base,
+                'is_base_unit' => (bool) $u->is_base_unit,
+            ])->values(),
+        ];
+    }
+}

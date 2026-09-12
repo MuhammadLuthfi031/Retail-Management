@@ -1,9 +1,12 @@
 
+
 import './prevent-double-submit';
 import './image-preview';
 import './barcode-scanner-shared';
 import './unit-rows';
 import './po-items';
+import './kasir-pos';
+
 import Alpine from 'alpinejs';
 
 window.Alpine = Alpine;

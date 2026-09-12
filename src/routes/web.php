@@ -6,6 +6,8 @@ use App\Http\Controllers\Gudang\CategoryController;
 use App\Http\Controllers\Gudang\ProductController;
 use App\Http\Controllers\Gudang\PurchaseReceiptController;
 use App\Http\Controllers\Gudang\StockController;
+use App\Http\Controllers\Kasir\PosController;
+use App\Http\Controllers\Kasir\RiwayatController;
 use App\Http\Controllers\ProfileController;
 use Illuminate\Support\Facades\Route;
 
@@ -22,7 +24,12 @@ Route::middleware('auth')->group(function () {
 
     // === KASIR ===
     Route::middleware('role:admin,kasir')->prefix('kasir')->name('kasir.')->group(function () {
-        Route::get('/pos', fn () => view('kasir.pos'))->name('pos');
+        Route::get('/pos', [PosController::class, 'index'])->name('pos');
+        Route::get('/pos/cari', [PosController::class, 'search'])->name('pos.cari');
+        Route::get('/pos/barcode/{code}', [PosController::class, 'lookup'])->name('pos.barcode');
+        Route::post('/pos/checkout', [PosController::class, 'checkout'])->name('pos.checkout');
+        Route::get('/riwayat', [RiwayatController::class, 'index'])->name('riwayat');
+        Route::get('/riwayat/{transaction}/struk', [RiwayatController::class, 'struk'])->name('riwayat.struk');
         Route::get('/produk', fn () => view('kasir.produk'))->name('produk');
     });
 

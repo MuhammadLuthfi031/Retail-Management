@@ -48,6 +48,13 @@
     </div>
 
     <div class="p-2">
+        @if (auth()->user()->isAdmin() || auth()->user()->isKasir())
+            <a href="{{ route('kasir.riwayat') }}" class="flex items-center gap-3 px-4 py-3 rounded-lg text-sm font-medium text-gray-700 hover:bg-gray-50">
+                <x-icon name="archive" />
+                Riwayat Transaksi
+            </a>
+        @endif
+
         @if (auth()->user()->isAdmin() || auth()->user()->isGudang())
             <a href="{{ route('gudang.kategori.index') }}" class="flex items-center gap-3 px-4 py-3 rounded-lg text-sm font-medium text-gray-700 hover:bg-gray-50">
                 <x-icon name="tag" />
