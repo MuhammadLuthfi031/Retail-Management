@@ -3,6 +3,7 @@
 namespace App\Http\Controllers\Kasir;
 
 use App\Http\Controllers\Controller;
+use App\Models\Category;
 use App\Models\Product;
 use App\Models\ProductUnit;
 use App\Models\StockMovement;
@@ -37,6 +38,37 @@ class PosController extends Controller
     public function index(): View
     {
         return view('kasir.pos');
+    }
+
+    /**
+     * Lihat Produk & Stok (read-only) — §4.3 spesifikasi. HANYA untuk
+     * dilihat: tidak ada aksi tambah/ubah/hapus di halaman ini sama sekali
+     * (itu wewenang Gudang/Admin lewat Gudang\ProductController). Kasir
+     * pakai halaman ini untuk cek harga per satuan & sisa stok tanpa harus
+     * buka POS dulu — mis. saat pembeli tanya harga sebelum checkout.
+     */
+    public function produk(Request $request): View
+    {
+        $products = Product::with(['category', 'units' => fn ($u) => $u->orderByDesc('conversion_to_base')])
+            ->when($request->search, function ($q) use ($request) {
+                $q->where(function ($q2) use ($request) {
+                    $q2->where('name', 'like', "%{$request->search}%")
+                        ->orWhere('sku', 'like', "%{$request->search}%")
+                        ->orWhereHas('units', fn ($q3) => $q3->where('barcode', $request->search));
+                });
+            })
+            ->when($request->category_id, fn ($q) => $q->where('category_id', $request->category_id))
+            ->when($request->boolean('low_stock'), fn ($q) => $q->lowStock())
+            // Default cuma tampilkan produk aktif (yang relevan buat kasir jual) —
+            // checkbox "Tampilkan nonaktif" untuk kasus kasir perlu cek produk lama.
+            ->when(! $request->boolean('show_inactive'), fn ($q) => $q->active())
+            ->orderBy('name')
+            ->paginate(15)
+            ->withQueryString();
+
+        $categories = Category::orderBy('name')->get();
+
+        return view('kasir.produk', compact('products', 'categories'));
     }
 
     /**
@@ -217,8 +249,7 @@ class PosController extends Controller
             $paidAmount = $isCash ? $validated['paid_amount'] : $grandTotal;
             $changeAmount = $isCash ? $paidAmount - $grandTotal : 0;
 
-            $transaction = Transaction::create([
-                'invoice_number' => Transaction::generateInvoiceNumber(),
+            $transaction = Transaction::createWithUniqueInvoice([
                 'user_id' => auth()->id(),
                 'total_amount' => $totalAmount,
                 'discount_amount' => $totalDiscount,

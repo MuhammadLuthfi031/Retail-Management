@@ -53,6 +53,10 @@
                 <x-icon name="archive" />
                 Riwayat Transaksi
             </a>
+            <a href="{{ route('kasir.produk') }}" class="flex items-center gap-3 px-4 py-3 rounded-lg text-sm font-medium text-gray-700 hover:bg-gray-50">
+                <x-icon name="cube" />
+                Produk & Stok
+            </a>
         @endif
 
         @if (auth()->user()->isAdmin() || auth()->user()->isGudang())
@@ -82,7 +86,7 @@
                 <x-icon name="truck" />
                 Supplier
             </a>
-            <a href="{{ route('admin.users') }}" class="flex items-center gap-3 px-4 py-3 rounded-lg text-sm font-medium text-gray-700 hover:bg-gray-50">
+            <a href="{{ route('admin.users.index') }}" class="flex items-center gap-3 px-4 py-3 rounded-lg text-sm font-medium text-gray-700 hover:bg-gray-50">
                 <x-icon name="users" />
                 Manajemen User
             </a>

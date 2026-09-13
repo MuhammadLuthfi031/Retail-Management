@@ -2,6 +2,7 @@
 
 use App\Http\Controllers\Admin\PurchaseOrderController;
 use App\Http\Controllers\Admin\SupplierController;
+use App\Http\Controllers\Admin\UserController;
 use App\Http\Controllers\Gudang\CategoryController;
 use App\Http\Controllers\Gudang\ProductController;
 use App\Http\Controllers\Gudang\PurchaseReceiptController;
@@ -15,7 +16,7 @@ Route::get('/', function () {
     return view('welcome');
 });
 
-Route::middleware('auth')->group(function () {
+Route::middleware(['auth', 'no-cache'])->group(function () {
     Route::get('/dashboard', fn () => view('dashboard'))->name('dashboard');
 
     Route::get('/profile', [ProfileController::class, 'edit'])->name('profile.edit');
@@ -30,7 +31,7 @@ Route::middleware('auth')->group(function () {
         Route::post('/pos/checkout', [PosController::class, 'checkout'])->name('pos.checkout');
         Route::get('/riwayat', [RiwayatController::class, 'index'])->name('riwayat');
         Route::get('/riwayat/{transaction}/struk', [RiwayatController::class, 'struk'])->name('riwayat.struk');
-        Route::get('/produk', fn () => view('kasir.produk'))->name('produk');
+        Route::get('/produk', [PosController::class, 'produk'])->name('produk');
     });
 
     // === GUDANG ===
@@ -64,8 +65,13 @@ Route::middleware('auth')->group(function () {
     // === ADMIN ===
     Route::middleware('role:admin')->prefix('admin')->name('admin.')->group(function () {
         Route::get('/dashboard', fn () => view('admin.dashboard'))->name('dashboard');
-        Route::get('/users', fn () => view('admin.users'))->name('users');
         Route::get('/laporan', fn () => view('admin.laporan'))->name('laporan');
+
+        // Manajemen User/Karyawan (§7.2 spesifikasi) — lihat UserController
+        // untuk alasan kenapa sengaja tidak ada route hapus permanen.
+        Route::resource('users', UserController::class)->only(['index', 'store', 'update']);
+        Route::put('/users/{user}/toggle-status', [UserController::class, 'toggleActive'])->name('users.toggle-status');
+        Route::put('/users/{user}/reset-password', [UserController::class, 'resetPassword'])->name('users.reset-password');
 
         Route::resource('supplier', SupplierController::class)
             ->only(['index', 'store', 'update', 'destroy']);

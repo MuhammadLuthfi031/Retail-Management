@@ -74,6 +74,11 @@
                 <x-icon name="archive" />
                 Riwayat Transaksi
             </a>
+            <a href="{{ route('kasir.produk') }}"
+               class="flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium transition {{ $navLink('kasir.produk', '', '')['classes'] }}">
+                <x-icon name="cube" />
+                Produk & Stok
+            </a>
         @endif
 
         @if (auth()->user()->isAdmin())
@@ -89,7 +94,7 @@
                 <x-icon name="truck" />
                 Supplier
             </a>
-            <a href="{{ route('admin.users') }}"
+            <a href="{{ route('admin.users.index') }}"
                class="flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium transition {{ $navLink('admin.users', '', '')['classes'] }}">
                 <x-icon name="users" />
                 Users

@@ -44,7 +44,19 @@ class Product extends Model
 
     public function units()
     {
-        return $this->hasMany(ProductUnit::class)->orderBy('sort_order');
+        // PENTING: urutkan berdasarkan conversion_to_base TERBESAR ke
+        // TERKECIL dulu (bukan cuma sort_order) sebagai default DI LEVEL
+        // RELASI INI — supaya aturan "satuan dasar selalu di baris PALING
+        // BAWAH" (§3.2) otomatis berlaku self-healing di MANA PUN relasi ini
+        // dipakai, termasuk kalau nanti ada kode baru yang query
+        // `$product->units` polos tanpa override manual seperti yang selama
+        // ini dilakukan ProductController & PosController. conversion_to_base
+        // satuan dasar SELALU 1 (angka terkecil yang mungkin), jadi urutan
+        // ini otomatis menaruhnya di baris terakhir apa pun nilai sort_order
+        // yang tersimpan (termasuk data legacy yang sort_order-nya salah).
+        // sort_order tetap dipakai sbg tie-breaker kedua (mis. 2 satuan yang
+        // kebetulan sama conversion_to_base-nya).
+        return $this->hasMany(ProductUnit::class)->orderByDesc('conversion_to_base')->orderBy('sort_order');
     }
 
     public function baseUnit()

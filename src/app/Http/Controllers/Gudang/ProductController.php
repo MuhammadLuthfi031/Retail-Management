@@ -195,7 +195,12 @@ class ProductController extends Controller
             'sku' => ['nullable', 'string', 'max:100', $uniqueSku],
             'min_stock' => ['required', 'numeric', 'min:0'],
             'description' => ['nullable', 'string', 'max:1000'],
-            'image' => ['nullable', 'image', 'max:2048'],
+            // PENTING (keamanan): pakai `mimes:` eksplisit, BUKAN rule `image`
+            // generik. Rule `image` bawaan Laravel ikut meloloskan SVG — file
+            // SVG bisa berisi <script> dan berpotensi stored-XSS kalau nanti
+            // dibuka langsung di tab baru (bukan lewat <img>). Foto produk
+            // cukup format raster umum, jadi svg/bmp/gif sengaja tidak masuk.
+            'image' => ['nullable', 'image', 'mimes:jpeg,jpg,png,webp', 'max:2048'],
         ]);
     }
 

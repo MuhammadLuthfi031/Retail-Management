@@ -50,6 +50,23 @@ class LoginRequest extends FormRequest
             ]);
         }
 
+        // PENTING: cek is_active DI SINI, sebelum sesi login dianggap sah.
+        // Tanpa ini, akun yang dinonaktifkan tetap berhasil ter-autentikasi
+        // penuh (sesi Laravel jalan) — baru diblokir belakangan oleh
+        // CheckRole middleware begitu buka route pertama. Efeknya: user
+        // terasa "sempat login" dulu baru mental dengan pesan yang sama
+        // ("akun tidak aktif atau belum login"), padahal seharusnya ditolak
+        // dari awal di halaman login dengan pesan yang jelas.
+        if (! Auth::user()->is_active) {
+            Auth::logout();
+            $this->session()->invalidate();
+            $this->session()->regenerateToken();
+
+            throw ValidationException::withMessages([
+                'account_status' => 'Akun ini sudah dinonaktifkan. Hubungi Admin toko untuk informasi lebih lanjut.',
+            ]);
+        }
+
         RateLimiter::clear($this->throttleKey());
     }
 

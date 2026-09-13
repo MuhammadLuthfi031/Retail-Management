@@ -7,16 +7,19 @@ use App\Http\Controllers\Auth\EmailVerificationPromptController;
 use App\Http\Controllers\Auth\NewPasswordController;
 use App\Http\Controllers\Auth\PasswordController;
 use App\Http\Controllers\Auth\PasswordResetLinkController;
-use App\Http\Controllers\Auth\RegisteredUserController;
 use App\Http\Controllers\Auth\VerifyEmailController;
 use Illuminate\Support\Facades\Route;
 
+// PENTING (keamanan): route registrasi mandiri (`register`) SENGAJA tidak ada
+// di sini. Ini sistem internal toko — akun HANYA boleh dibuat oleh Admin lewat
+// Modul Admin > Manajemen User (§7.2 spesifikasi). Sebelumnya route ini masih
+// bawaan default Laravel Breeze dan aktif tanpa proteksi apa pun: siapa saja
+// yang buka /register bisa bikin akun sendiri, otomatis dapat role "kasir"
+// (default kolom `role` di migrasi users) berstatus aktif, lalu langsung
+// ter-login dan bisa buka penuh /kasir/pos. Kalau nanti butuh alur "undang
+// user baru", buat lewat Admin (mis. Admin generate password awal), BUKAN
+// dengan mengaktifkan lagi route publik ini.
 Route::middleware('guest')->group(function () {
-    Route::get('register', [RegisteredUserController::class, 'create'])
-        ->name('register');
-
-    Route::post('register', [RegisteredUserController::class, 'store']);
-
     Route::get('login', [AuthenticatedSessionController::class, 'create'])
         ->name('login');
 
