@@ -30,8 +30,8 @@
             };
         @endphp
 
-        <a href="{{ route('dashboard') }}"
-           class="flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium transition {{ $navLink('dashboard', '', '')['classes'] }}">
+        <a href="{{ route('admin.dashboard') }}"
+           class="flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium transition {{ $navLink('admin.dashboard', '', '')['classes'] }}">
             <x-icon name="home" />
             Dashboard
         </a>
@@ -99,7 +99,7 @@
                 <x-icon name="users" />
                 Users
             </a>
-            <a href="{{ route('admin.laporan') }}"
+            <a href="{{ route('admin.laporan.penjualan') }}"
                class="flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium transition {{ $navLink('admin.laporan', '', '')['classes'] }}">
                 <x-icon name="chart" />
                 Laporan

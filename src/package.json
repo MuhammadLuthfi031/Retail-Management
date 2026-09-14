@@ -21,6 +21,7 @@
         "@laravel/multiplex": "^0.4.1"
     },
     "dependencies": {
+        "chart.js": "^4.5.1",
         "html5-qrcode": "^2.3.8"
     }
 }

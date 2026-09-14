@@ -90,7 +90,7 @@
                 <x-icon name="users" />
                 Manajemen User
             </a>
-            <a href="{{ route('admin.laporan') }}" class="flex items-center gap-3 px-4 py-3 rounded-lg text-sm font-medium text-gray-700 hover:bg-gray-50">
+            <a href="{{ route('admin.laporan.penjualan') }}" class="flex items-center gap-3 px-4 py-3 rounded-lg text-sm font-medium text-gray-700 hover:bg-gray-50">
                 <x-icon name="chart" />
                 Laporan
             </a>

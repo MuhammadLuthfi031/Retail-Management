@@ -6,6 +6,7 @@ import './barcode-scanner-shared';
 import './unit-rows';
 import './po-items';
 import './kasir-pos';
+import './dashboard-charts';
 
 import Alpine from 'alpinejs';
 

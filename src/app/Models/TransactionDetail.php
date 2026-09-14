@@ -16,6 +16,7 @@ class TransactionDetail extends Model
         'unit_name',
         'unit_conversion',
         'price',
+        'unit_cost',
         'discount_amount',
         'quantity',
         'subtotal',
@@ -43,5 +44,18 @@ class TransactionDetail extends Model
     public function quantityInBaseUnit(): float
     {
         return round($this->quantity * $this->unit_conversion, 3);
+    }
+
+    /**
+     * Harga Pokok Penjualan (HPP) baris ini = unit_cost (snapshot per satuan
+     * dasar saat terjual) x kuantitas dalam satuan dasar. Basis Laporan
+     * Laba/Rugi (§7.3). Null kalau baris ini dibuat sebelum kolom unit_cost
+     * ada — pemanggil (LaporanController) yang menentukan fallback-nya.
+     */
+    public function costOfGoodsSold(): ?int
+    {
+        return $this->unit_cost === null
+            ? null
+            : (int) round($this->unit_cost * $this->quantityInBaseUnit());
     }
 }

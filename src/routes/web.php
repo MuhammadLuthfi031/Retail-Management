@@ -1,5 +1,7 @@
 <?php
 
+use App\Http\Controllers\Admin\LaporanController;
+use App\Http\Controllers\Admin\DashboardController;
 use App\Http\Controllers\Admin\PurchaseOrderController;
 use App\Http\Controllers\Admin\SupplierController;
 use App\Http\Controllers\Admin\UserController;
@@ -64,8 +66,17 @@ Route::middleware(['auth', 'no-cache'])->group(function () {
 
     // === ADMIN ===
     Route::middleware('role:admin')->prefix('admin')->name('admin.')->group(function () {
-        Route::get('/dashboard', fn () => view('admin.dashboard'))->name('dashboard');
-        Route::get('/laporan', fn () => view('admin.laporan'))->name('laporan');
+        Route::get('/dashboard', [DashboardController::class, 'index'])->name('dashboard');
+
+        // Laporan (§7.3 spesifikasi) — 3 laporan + export PDF masing-masing.
+        Route::prefix('laporan')->name('laporan.')->group(function () {
+            Route::get('/penjualan', [LaporanController::class, 'penjualan'])->name('penjualan');
+            Route::get('/penjualan/pdf', [LaporanController::class, 'penjualanPdf'])->name('penjualan.pdf');
+            Route::get('/laba-rugi', [LaporanController::class, 'labaRugi'])->name('laba-rugi');
+            Route::get('/laba-rugi/pdf', [LaporanController::class, 'labaRugiPdf'])->name('laba-rugi.pdf');
+            Route::get('/stok', [LaporanController::class, 'stok'])->name('stok');
+            Route::get('/stok/pdf', [LaporanController::class, 'stokPdf'])->name('stok.pdf');
+        });
 
         // Manajemen User/Karyawan (§7.2 spesifikasi) — lihat UserController
         // untuk alasan kenapa sengaja tidak ada route hapus permanen.

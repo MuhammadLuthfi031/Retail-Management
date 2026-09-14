@@ -261,17 +261,6 @@ class PosController extends Controller
             ]);
 
             foreach ($lines as $line) {
-                $transaction->details()->create([
-                    'product_id' => $line['product']->id,
-                    'product_name' => $line['product']->name,
-                    'unit_name' => $line['unit']->unit_name,
-                    'unit_conversion' => $line['unit']->conversion_to_base,
-                    'price' => $line['price'],
-                    'discount_amount' => $line['discount_amount'],
-                    'quantity' => $line['qty'],
-                    'subtotal' => $line['subtotal'],
-                ]);
-
                 // Kuantitas jual (dalam satuan yang dipilih kasir) WAJIB
                 // dikonversi ke satuan dasar dulu sebelum memotong stok —
                 // StockMovement::record() selalu bekerja di satuan dasar.
@@ -285,6 +274,28 @@ class PosController extends Controller
                     reference: $transaction->invoice_number,
                     note: "Penjualan POS: {$line['qty']} {$line['unit']->unit_name}",
                 );
+
+                // PENTING: baca average_cost SETELAH StockMovement::record() di
+                // atas (yang lockForUpdate baris produk ini), BUKAN dari objek
+                // $line['product'] yang sudah basi sejak awal request — supaya
+                // snapshot cost basis di transaction_details akurat walau ada
+                // pembelian lain yang barusan mengubah average_cost produk ini
+                // persis di detik yang sama. Snapshot ini basis Laporan
+                // Laba/Rugi (§7.3) supaya tetap akurat historis meski
+                // average_cost produk berubah lagi di masa depan.
+                $costBasis = $line['product']->refresh()->average_cost;
+
+                $transaction->details()->create([
+                    'product_id' => $line['product']->id,
+                    'product_name' => $line['product']->name,
+                    'unit_name' => $line['unit']->unit_name,
+                    'unit_conversion' => $line['unit']->conversion_to_base,
+                    'price' => $line['price'],
+                    'unit_cost' => $costBasis,
+                    'discount_amount' => $line['discount_amount'],
+                    'quantity' => $line['qty'],
+                    'subtotal' => $line['subtotal'],
+                ]);
             }
 
             return $transaction;
