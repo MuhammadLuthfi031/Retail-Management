@@ -1,7 +1,7 @@
 <aside class="hidden md:flex md:flex-col md:fixed md:inset-y-0 md:w-64 bg-white border-r border-gray-200 z-30">
     <!-- Logo -->
     <div class="h-16 flex items-center px-6 border-b border-gray-100">
-        <a href="{{ route('dashboard') }}" class="font-bold text-xl text-indigo-600">
+        <a href="{{ route(auth()->user()->homeRouteName()) }}" class="font-bold text-xl text-indigo-600">
             Toko<span class="text-gray-800">App</span>
         </a>
     </div>
@@ -30,11 +30,13 @@
             };
         @endphp
 
-        <a href="{{ route('admin.dashboard') }}"
-           class="flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium transition {{ $navLink('admin.dashboard', '', '')['classes'] }}">
-            <x-icon name="home" />
-            Dashboard
-        </a>
+        @if (auth()->user()->isAdmin())
+            <a href="{{ route('admin.dashboard') }}"
+               class="flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium transition {{ $navLink('admin.dashboard', '', '')['classes'] }}">
+                <x-icon name="home" />
+                Dashboard
+            </a>
+        @endif
 
         @if (auth()->user()->isAdmin() || auth()->user()->isGudang())
             <p class="px-3 pt-4 pb-1 text-xs font-semibold text-gray-400 uppercase tracking-wider">Gudang</p>

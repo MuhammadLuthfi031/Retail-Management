@@ -4,7 +4,7 @@
 
 <nav class="md:hidden fixed bottom-0 inset-x-0 z-30 bg-white border-t border-gray-200 pb-[env(safe-area-inset-bottom)]">
     <div class="grid h-16 {{ auth()->user()->isAdmin() || auth()->user()->isGudang() ? 'grid-cols-5' : 'grid-cols-4' }}">
-        <a href="{{ route('dashboard') }}" class="flex flex-col items-center justify-center gap-0.5 {{ $isActive('dashboard') }}">
+        <a href="{{ route(auth()->user()->homeRouteName()) }}" class="flex flex-col items-center justify-center gap-0.5 {{ $isActive(auth()->user()->homeRouteName()) }}">
             <x-icon name="home" class="w-6 h-6" />
             <span class="text-[11px] font-medium">Beranda</span>
         </a>

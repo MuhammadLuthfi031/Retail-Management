@@ -53,6 +53,22 @@ class User extends Authenticatable
         return $this->role === 'gudang';
     }
 
+    /**
+     * Nama route 'halaman utama' untuk role user ini — dipakai untuk
+     * redirect setelah login (AuthenticatedSessionController) DAN untuk link
+     * logo/menu di sidebar. Satu sumber kebenaran supaya keduanya tidak
+     * pernah beda arah.
+     */
+    public function homeRouteName(): string
+    {
+        return match ($this->role) {
+            'admin' => 'admin.dashboard',
+            'kasir' => 'kasir.pos',
+            'gudang' => 'gudang.kategori.index',
+            default => 'dashboard',
+        };
+    }
+
     // === Relasi ===
 
     public function transactions()

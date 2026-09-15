@@ -49,11 +49,6 @@ class AuthenticatedSessionController extends Controller
      */
     protected function redirectPathForRole(): string
     {
-        return match (Auth::user()->role) {
-            'admin' => route('admin.dashboard', absolute: false),
-            'kasir' => route('kasir.pos', absolute: false),
-            'gudang' => route('gudang.kategori.index', absolute: false),
-            default => route('dashboard', absolute: false),
-        };
+        return route(Auth::user()->homeRouteName(), absolute: false);
     }
 }
