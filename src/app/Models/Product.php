@@ -110,17 +110,29 @@ class Product extends Model
     /**
      * Hitung ulang harga pokok rata-rata tertimbang setelah ada barang masuk.
      * Dipanggil dari proses konfirmasi penerimaan pembelian (PurchaseOrderItem).
+     *
+     * PENTING: parameter kedua adalah TOTAL biaya batch yang masuk (harga_beli
+     * x qty_beli, dalam satuan pembelian aslinya) — BUKAN harga per satuan
+     * dasar yang sudah dibulatkan. Alasannya: kalau caller membulatkan dulu
+     * "harga per satuan dasar" (mis. harga per dus dibagi konversi ke sachet)
+     * SEBELUM dikalikan lagi dengan qty di sini, hasilnya jadi pembulatan
+     * GANDA yang nilainya kecil per transaksi tapi TERAKUMULASI setiap kali
+     * ada penerimaan barang sepanjang umur produk — lama-lama HPP tercatat
+     * bisa menyimpang cukup jauh dari yang seharusnya, padahal ini basis
+     * Laporan Laba/Rugi (§7.3). Total biaya batch (unit_price x qty_beli)
+     * SELALU exact tanpa pembagian apa pun, jadi pembulatan cukup dilakukan
+     * SATU KALI di akhir formula ini saja.
      */
-    public function recalculateAverageCost(float $incomingQty, int $incomingUnitCost): int
+    public function recalculateAverageCost(float $incomingQty, float $incomingTotalCost): int
     {
         $currentStock = (float) $this->stock;
         $currentAvgCost = (int) $this->average_cost;
 
         if ($currentStock <= 0) {
-            return $incomingUnitCost;
+            return (int) round($incomingTotalCost / max($incomingQty, 0.001));
         }
 
-        $newAvgCost = (($currentStock * $currentAvgCost) + ($incomingQty * $incomingUnitCost))
+        $newAvgCost = (($currentStock * $currentAvgCost) + $incomingTotalCost)
             / ($currentStock + $incomingQty);
 
         return (int) round($newAvgCost);

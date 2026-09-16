@@ -4,6 +4,7 @@ namespace App\Http\Controllers\Admin;
 
 use App\Http\Controllers\Controller;
 use App\Models\Product;
+use App\Models\ProductUnit;
 use App\Models\PurchaseOrder;
 use App\Models\PurchaseOrderItem;
 use App\Models\Supplier;
@@ -47,9 +48,8 @@ class PurchaseOrderController extends Controller
         $items = $this->extractItems($request);
 
         $po = DB::transaction(function () use ($validated, $items) {
-            $po = PurchaseOrder::create([
+            $po = PurchaseOrder::createWithUniquePoNumber([
                 ...$validated,
-                'po_number' => PurchaseOrder::generatePoNumber(),
                 'created_by' => auth()->id(),
                 'status' => 'draft',
                 'payment_status' => 'unpaid',
@@ -170,6 +170,18 @@ class PurchaseOrderController extends Controller
             throw ValidationException::withMessages(['items' => 'Minimal harus ada 1 item produk di PO.']);
         }
 
+        // Ambil semua ProductUnit yang direferensikan sekaligus (1 query,
+        // bukan N+1 di dalam loop) untuk validasi bahwa product_unit_id yang
+        // dikirim client BENAR milik product_id yang sama di baris yang sama
+        // — jangan percaya begitu saja pasangan ID dari client (mis. dropdown
+        // yang stale karena produk diedit di tab lain, atau form yang
+        // ter-tamper). Kalau sampai lolos tidak cocok, konversi & harga di
+        // alur Konfirmasi Penerimaan (§5.3/§6.3) bisa salah total — produk
+        // yang di-update stok & HPP-nya jadi bukan produk yang benar. Pola
+        // yang sama seperti pengecekan di PosController::checkout().
+        $unitIds = collect($rawItems)->pluck('product_unit_id')->filter()->unique();
+        $units = ProductUnit::whereIn('id', $unitIds)->get(['id', 'product_id'])->keyBy('id');
+
         $items = [];
         foreach ($rawItems as $row) {
             $productId = $row['product_id'] ?? null;
@@ -179,6 +191,14 @@ class PurchaseOrderController extends Controller
 
             if (! $productId || ! $unitId || $qty <= 0) {
                 continue;
+            }
+
+            $unit = $units->get($unitId);
+
+            if (! $unit || (int) $unit->product_id !== (int) $productId) {
+                throw ValidationException::withMessages([
+                    'items' => 'Salah satu satuan yang dipilih tidak sesuai dengan produknya. Muat ulang halaman lalu pilih produk & satuannya lagi.',
+                ]);
             }
 
             $items[] = [

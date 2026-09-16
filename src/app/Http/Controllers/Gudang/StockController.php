@@ -9,6 +9,7 @@ use App\Models\StockMovement;
 use App\Support\Number;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\DB;
 use Illuminate\View\View;
 
 class StockController extends Controller
@@ -95,25 +96,39 @@ class StockController extends Controller
             'note' => ['nullable', 'string', 'max:500'],
         ]);
 
-        $selisih = round((float) $validated['physical_stock'] - (float) $product->stock, 3);
+        // Kunci baris produk DULU, baru hitung selisih dari stok yang benar-benar
+        // TERKINI — bukan dari $product->stock hasil route-model-binding yang
+        // di-resolve SEBELUM transaksi ini mulai (bisa basi, mis. sudah lewat
+        // beberapa menit sejak gudang buka form & mulai hitung fisik). Kalau
+        // ada transaksi lain (penjualan, stok keluar, dll) yang mengubah stok
+        // produk ini persis di antara gudang mulai menghitung fisik dan submit
+        // form, selisih yang dihitung dari data basi akan SALAH — hasil akhir
+        // stok tersimpan jadi tidak sama dengan angka fisik yang sebenarnya
+        // diinput, padahal itu justru tujuan opname (mengoreksi ke angka fisik
+        // yang benar). Pola locking sama seperti PurchaseReceiptController.
+        return DB::transaction(function () use ($validated, $product) {
+            $locked = Product::whereKey($product->id)->lockForUpdate()->firstOrFail();
 
-        if ($selisih === 0.0) {
-            return back()->with('success', "Stok fisik \"{$product->name}\" sudah sesuai dengan sistem, tidak ada penyesuaian yang dicatat.");
-        }
+            $selisih = round((float) $validated['physical_stock'] - (float) $locked->stock, 3);
 
-        $note = $validated['note'] ?: 'Hasil stok opname';
-        $note .= $selisih > 0
-            ? " (stok fisik lebih banyak {$selisih} dari catatan sistem)"
-            : ' (stok fisik lebih sedikit ' . abs($selisih) . ' dari catatan sistem)';
+            if ($selisih === 0.0) {
+                return back()->with('success', "Stok fisik \"{$locked->name}\" sudah sesuai dengan sistem, tidak ada penyesuaian yang dicatat.");
+            }
 
-        StockMovement::record(
-            product: $product,
-            type: 'adjustment',
-            quantity: $selisih, // boleh negatif, lihat catatan di StockMovement::record()
-            userId: auth()->id(),
-            note: $note,
-        );
+            $note = $validated['note'] ?: 'Hasil stok opname';
+            $note .= $selisih > 0
+                ? " (stok fisik lebih banyak {$selisih} dari catatan sistem)"
+                : ' (stok fisik lebih sedikit ' . abs($selisih) . ' dari catatan sistem)';
 
-        return back()->with('success', "Stok opname untuk \"{$product->name}\" berhasil dicatat. Selisih: {$selisih}.");
+            StockMovement::record(
+                product: $locked,
+                type: 'adjustment',
+                quantity: $selisih, // boleh negatif, lihat catatan di StockMovement::record()
+                userId: auth()->id(),
+                note: $note,
+            );
+
+            return back()->with('success', "Stok opname untuk \"{$locked->name}\" berhasil dicatat. Selisih: {$selisih}.");
+        });
     }
 }

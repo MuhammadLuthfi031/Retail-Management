@@ -68,9 +68,17 @@ class StockMovement extends Model
      * otomatis menunggu proses pertama commit dulu, baru baca stok yang
      * sudah ter-update, sehingga selalu berbasis angka yang benar.
      *
-     * @param  int|null  $unitCost  Harga pokok per satuan dasar SAAT stok masuk ini terjadi.
-     *                              Hanya isi untuk type 'in' yang berasal dari pembelian —
-     *                              akan otomatis memicu perhitungan ulang average_cost produk.
+     * @param  int|null  $unitCost  Harga pokok per satuan dasar SAAT stok masuk ini terjadi —
+     *                              disimpan ke kolom stock_movements.unit_cost sbg JEJAK AUDIT
+     *                              (boleh angka yang sudah dibulatkan, cuma untuk ditampilkan).
+     *                              Hanya isi untuk type 'in' yang berasal dari pembelian.
+     * @param  float|null  $totalCost  Basis perhitungan ULANG average_cost produk — TOTAL biaya
+     *                              batch yang masuk, harus nilai EXACT (mis. unit_price x qty_beli,
+     *                              SEBELUM dibagi konversi satuan) supaya tidak ada pembulatan
+     *                              ganda yang terakumulasi (lihat Product::recalculateAverageCost).
+     *                              Kalau tidak diisi, fallback ke unitCost x quantity (aman dipakai
+     *                              caller yang memang cuma punya angka per-satuan-dasar yang sudah
+     *                              exact dari awal, mis. ProductController::store() utk stok awal).
      */
     public static function record(
         Product $product,
@@ -79,9 +87,10 @@ class StockMovement extends Model
         int $userId,
         ?string $reference = null,
         ?string $note = null,
-        ?int $unitCost = null
+        ?int $unitCost = null,
+        ?float $totalCost = null
     ): self {
-        return DB::transaction(function () use ($product, $type, $quantity, $userId, $reference, $note, $unitCost) {
+        return DB::transaction(function () use ($product, $type, $quantity, $userId, $reference, $note, $unitCost, $totalCost) {
             // Kunci baris produk ini di database sampai transaksi selesai
             // (commit/rollback) — proses lain yang juga panggil record() untuk
             // product_id yang sama akan menunggu di titik ini, bukan jalan
@@ -127,9 +136,12 @@ class StockMovement extends Model
 
             $updateData = ['stock' => $stockAfter];
 
-            // Hitung ulang harga pokok rata-rata HANYA kalau ini stok masuk dengan info harga
+            // Hitung ulang harga pokok rata-rata HANYA kalau ini stok masuk dengan info harga.
+            // $costBasis WAJIB pakai $totalCost (exact) kalau caller mengirimnya — lihat
+            // docblock parameter di atas soal kenapa ini bukan sekadar unitCost x quantity.
             if ($type === 'in' && $unitCost !== null) {
-                $updateData['average_cost'] = $locked->recalculateAverageCost($absQuantity, $unitCost);
+                $costBasis = $totalCost ?? ($unitCost * $absQuantity);
+                $updateData['average_cost'] = $locked->recalculateAverageCost($absQuantity, $costBasis);
             }
 
             $locked->update($updateData);

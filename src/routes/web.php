@@ -12,11 +12,21 @@ use App\Http\Controllers\Gudang\StockController;
 use App\Http\Controllers\Kasir\PosController;
 use App\Http\Controllers\Kasir\RiwayatController;
 use App\Http\Controllers\ProfileController;
+use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\Route;
 
+// Root URL: tidak ada halaman publik/marketing untuk sistem internal ini.
+// Kalau sudah login, langsung ke "halaman utama" sesuai role (satu sumber
+// kebenaran: User::homeRouteName()). Kalau belum, ke halaman login.
+// Middleware 'no-cache' WAJIB di sini: response-nya bergantung status auth
+// (dinamis) — tanpa ini, browser bisa nyimpen cache dari kunjungan
+// sebelumnya (mis. form login) dan tetap nampilin itu meski status login
+// user sudah berubah. Lihat PreventBackHistoryCache.php untuk kasus serupa.
 Route::get('/', function () {
-    return view('auth/login');
-});
+    return Auth::check()
+        ? redirect()->route(Auth::user()->homeRouteName())
+        : redirect()->route('login');
+})->middleware('no-cache');
 
 Route::middleware(['auth', 'no-cache'])->group(function () {
     Route::get('/dashboard', fn () => view('dashboard'))->name('dashboard');

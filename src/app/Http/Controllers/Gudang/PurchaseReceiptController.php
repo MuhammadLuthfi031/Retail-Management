@@ -76,6 +76,18 @@ class PurchaseReceiptController extends Controller
                 $anyProcessed = true;
                 $conversion = (float) $item->productUnit->conversion_to_base;
                 $qtyBase = $qtyNow * $conversion;
+
+                // Total biaya batch ini SELALU exact (harga beli x qty yang benar-benar
+                // diterima, dalam satuan pembelian aslinya) — tidak ada pembagian sama
+                // sekali, jadi tidak ada celah pembulatan di angka ini. Ini yang dipakai
+                // sbg basis recalculateAverageCost (lihat catatan di StockMovement::record()
+                // soal kenapa TIDAK boleh pakai unitCostPerBase x qtyBase di sini — itu
+                // akan membawa balik pembulatan yang barusan dihindari).
+                $totalCostThisReceipt = $item->unit_price * $qtyNow;
+
+                // unitCostPerBase HANYA untuk jejak audit di stock_movements.unit_cost
+                // (angka "harga pokok per satuan dasar saat itu" yang enak dibaca manusia
+                // di riwayat pergerakan stok) — TIDAK lagi dipakai utk hitung rata-rata.
                 $unitCostPerBase = (int) round($item->unit_price / max($conversion, 0.001));
 
                 StockMovement::record(
@@ -86,6 +98,7 @@ class PurchaseReceiptController extends Controller
                     reference: "PO:{$locked->po_number}",
                     note: "Penerimaan barang PO {$locked->po_number} ({$qtyNow} {$item->productUnit->unit_name})",
                     unitCost: $unitCostPerBase,
+                    totalCost: $totalCostThisReceipt,
                 );
 
                 $item->update([
