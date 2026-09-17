@@ -92,18 +92,44 @@
                         </form>
                     @endif
 
-                    <form method="POST" action="{{ route('admin.pembelian.payment-status', $po) }}" class="flex items-center gap-2 ml-auto">
-                        @csrf
-                        @method('PUT')
-                        <label class="text-xs text-gray-500">Status Bayar:</label>
-                        <select name="payment_status" onchange="this.form.submit()" class="rounded-md border-gray-300 text-xs focus:border-indigo-500 focus:ring-indigo-500">
-                            @foreach ($paymentLabel as $key => $label)
-                                <option value="{{ $key }}" @selected($po->payment_status === $key)>{{ $label }}</option>
-                            @endforeach
-                        </select>
-                    </form>
+                    <div class="ml-auto flex items-center gap-2">
+                        <div class="text-right">
+                            <div class="text-xs text-gray-400 uppercase">Status Bayar</div>
+                            <span class="inline-flex px-2.5 py-0.5 rounded-full text-xs font-medium
+                                {{ $po->payment_status === 'paid' ? 'bg-emerald-100 text-emerald-700' : ($po->payment_status === 'partial' ? 'bg-amber-100 text-amber-700' : 'bg-gray-100 text-gray-600') }}">
+                                {{ $paymentLabel[$po->payment_status] }}
+                            </span>
+                        </div>
+                        @if ($po->payment_status !== 'paid')
+                            <button type="button" data-modal-open="ubah-status-bayar" class="px-3 py-1.5 rounded-md text-xs font-semibold uppercase tracking-wide bg-gray-100 text-gray-700 hover:bg-gray-200">
+                                Ubah
+                            </button>
+                        @endif
+                    </div>
                 </div>
             </div>
+
+            @if ($po->payments->isNotEmpty())
+                <!-- Riwayat Bukti Pembayaran -->
+                <div class="bg-white shadow-sm sm:rounded-lg p-6">
+                    <h3 class="text-sm font-semibold text-gray-700 mb-3">Riwayat Bukti Pembayaran</h3>
+                    <ul class="divide-y divide-gray-100 text-sm">
+                        @foreach ($po->payments as $payment)
+                            <li class="py-2.5 flex items-center justify-between gap-3">
+                                <div>
+                                    <span class="font-medium text-gray-800">{{ $paymentLabel[$payment->from_status] }} &rarr; {{ $paymentLabel[$payment->to_status] }}</span>
+                                    <div class="text-xs text-gray-400">
+                                        {{ $payment->uploadedBy->name ?? '—' }} &middot; {{ $payment->created_at->format('d M Y H:i') }}
+                                    </div>
+                                </div>
+                                <a href="{{ Storage::url($payment->proof_path) }}" target="_blank" rel="noopener" class="text-indigo-600 hover:underline text-xs font-medium shrink-0">
+                                    Lihat Bukti
+                                </a>
+                            </li>
+                        @endforeach
+                    </ul>
+                </div>
+            @endif
 
             <!-- Items -->
             <div class="bg-white shadow-sm sm:rounded-lg overflow-hidden overflow-x-auto">
@@ -179,6 +205,52 @@
                 <div class="flex justify-end gap-2">
                     <x-secondary-button type="button" data-modal-close>Batal</x-secondary-button>
                     <x-danger-button>Ya, Hapus</x-danger-button>
+                </div>
+            </form>
+        </x-modal.modal>
+    @endif
+
+    @if ($po->payment_status !== 'paid')
+        <!-- Modal Ubah Status Bayar -->
+        <x-modal.modal name="ubah-status-bayar">
+            <form method="POST" action="{{ route('admin.pembelian.payment-status', $po) }}" enctype="multipart/form-data" class="p-6">
+                @csrf
+                @method('PUT')
+                <h3 class="text-lg font-medium text-gray-900 mb-1">Ubah Status Pembayaran</h3>
+                <p class="text-sm text-gray-500 mb-4">
+                    Status saat ini: <strong>{{ $paymentLabel[$po->payment_status] }}</strong>.
+                    Status pembayaran tidak bisa dikembalikan mundur setelah disimpan.
+                </p>
+
+                <input type="hidden" name="form_id" value="ubah-status-bayar">
+
+                <div class="mb-4">
+                    <label class="block text-sm font-medium text-gray-700 mb-1">Status Baru</label>
+                    <select name="payment_status" required class="w-full rounded-md border-gray-300 shadow-sm text-sm focus:border-indigo-500 focus:ring-indigo-500">
+                        <option value="" disabled selected>Pilih status baru...</option>
+                        @foreach ($paymentLabel as $key => $label)
+                            @continue(\App\Models\PurchaseOrder::PAYMENT_STATUS_RANK[$key] <= \App\Models\PurchaseOrder::PAYMENT_STATUS_RANK[$po->payment_status])
+                            <option value="{{ $key }}" @selected(old('payment_status') === $key)>{{ $label }}</option>
+                        @endforeach
+                    </select>
+                    @error('payment_status')
+                        <p class="text-xs text-red-600 mt-1">{{ $message }}</p>
+                    @enderror
+                </div>
+
+                <div class="mb-2">
+                    <label class="block text-sm font-medium text-gray-700 mb-1">Bukti Pembayaran</label>
+                    <input type="file" name="proof" required accept="image/jpeg,image/png,image/webp"
+                           class="w-full text-sm text-gray-600 file:mr-3 file:py-1.5 file:px-3 file:rounded-md file:border-0 file:text-xs file:font-semibold file:bg-indigo-50 file:text-indigo-700 hover:file:bg-indigo-100">
+                    <p class="text-xs text-gray-400 mt-1">Format JPG/PNG/WEBP, maksimal 2MB. Wajib diisi.</p>
+                    @error('proof')
+                        <p class="text-xs text-red-600 mt-1">{{ $message }}</p>
+                    @enderror
+                </div>
+
+                <div class="flex justify-end gap-2 mt-6">
+                    <x-secondary-button type="button" data-modal-close>Batal</x-secondary-button>
+                    <x-primary-button>Simpan</x-primary-button>
                 </div>
             </form>
         </x-modal.modal>

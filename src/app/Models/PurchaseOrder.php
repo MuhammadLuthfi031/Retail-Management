@@ -45,6 +45,33 @@ class PurchaseOrder extends Model
         return $this->hasMany(PurchaseOrderItem::class);
     }
 
+    public function payments()
+    {
+        return $this->hasMany(PurchaseOrderPayment::class)->latest();
+    }
+
+    public function receipts()
+    {
+        return $this->hasMany(PurchaseOrderReceipt::class)->latest();
+    }
+
+    /**
+     * Urutan (rank) status pembayaran — dipakai untuk memastikan status
+     * pembayaran CUMA BISA MAJU (unpaid -> partial -> paid, atau langsung
+     * unpaid -> paid), TIDAK PERNAH bisa dikembalikan mundur. Lihat
+     * PurchaseOrderController::updatePaymentStatus() untuk pemakaiannya.
+     */
+    public const PAYMENT_STATUS_RANK = [
+        'unpaid' => 0,
+        'partial' => 1,
+        'paid' => 2,
+    ];
+
+    public function canAdvancePaymentStatusTo(string $newStatus): bool
+    {
+        return self::PAYMENT_STATUS_RANK[$newStatus] > self::PAYMENT_STATUS_RANK[$this->payment_status];
+    }
+
     /**
      * PENTING (race condition): kunci baris PO TERAKHIR hari ini (kalau sudah
      * ada) dengan `lockForUpdate()` — proses lain yang menghitung po_number
@@ -110,5 +137,12 @@ class PurchaseOrder extends Model
                 // Lanjut ke percobaan berikutnya dengan po_number baru.
             }
         }
+
+        // Baris ini secara LOGIKA tidak akan pernah kesampaian — percobaan
+        // terakhir ($attempt === $maxAttempts) di atas selalu throw kalau
+        // masih gagal. Tetap ditulis eksplisit supaya PHP & static analyzer
+        // tidak menganggap method ber-return-type `self` ini diam-diam bisa
+        // menghasilkan null.
+        throw new \RuntimeException('Gagal membuat nomor PO unik setelah beberapa kali percobaan.');
     }
 }

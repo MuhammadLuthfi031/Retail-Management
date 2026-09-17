@@ -7,6 +7,7 @@ use App\Models\Product;
 use App\Models\ProductUnit;
 use App\Models\PurchaseOrder;
 use App\Models\PurchaseOrderItem;
+use App\Models\PurchaseOrderPayment;
 use App\Models\Supplier;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
@@ -35,7 +36,7 @@ class PurchaseOrderController extends Controller
 
     public function show(PurchaseOrder $pembelian): View
     {
-        $pembelian->load(['supplier', 'createdBy', 'items.product', 'items.productUnit', 'items.receivedBy']);
+        $pembelian->load(['supplier', 'createdBy', 'items.product', 'items.productUnit', 'items.receivedBy', 'payments.uploadedBy']);
         $suppliers = Supplier::active()->orderBy('name')->get();
         $products = $this->productsForForm();
 
@@ -117,11 +118,37 @@ class PurchaseOrderController extends Controller
     {
         $validated = $request->validate([
             'payment_status' => ['required', 'in:unpaid,partial,paid'],
+            // PENTING (keamanan): pakai `mimes:` eksplisit, BUKAN rule `image`
+            // generik — rule `image` bawaan Laravel ikut meloloskan SVG yang
+            // berpotensi stored-XSS. Sama seperti pola upload foto produk.
+            'proof' => ['required', 'image', 'mimes:jpeg,jpg,png,webp', 'max:2048'],
         ]);
 
-        $pembelian->update($validated);
+        // Status pembayaran CUMA BOLEH MAJU — tidak pernah bisa dikembalikan
+        // dari "lunas" ke "sebagian", atau dari "sebagian" ke "belum lunas".
+        // Ini keputusan bisnis yang disengaja (akuntabilitas keuangan), bukan
+        // celah yang lupa ditutup — lihat PurchaseOrder::canAdvancePaymentStatusTo().
+        if (! $pembelian->canAdvancePaymentStatusTo($validated['payment_status'])) {
+            throw ValidationException::withMessages([
+                'payment_status' => "Status pembayaran harus lebih maju dari status saat ini ({$pembelian->payment_status}) — tidak bisa sama atau dikembalikan mundur.",
+            ]);
+        }
 
-        return back()->with('success', 'Status pembayaran berhasil diperbarui.');
+        DB::transaction(function () use ($request, $pembelian, $validated) {
+            $proofPath = $request->file('proof')->store('purchase-payments', 'public');
+
+            PurchaseOrderPayment::create([
+                'purchase_order_id' => $pembelian->id,
+                'from_status' => $pembelian->payment_status,
+                'to_status' => $validated['payment_status'],
+                'proof_path' => $proofPath,
+                'uploaded_by' => auth()->id(),
+            ]);
+
+            $pembelian->update(['payment_status' => $validated['payment_status']]);
+        });
+
+        return back()->with('success', 'Status pembayaran berhasil diperbarui beserta bukti pembayarannya.');
     }
 
     public function cancel(PurchaseOrder $pembelian): RedirectResponse

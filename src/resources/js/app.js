@@ -7,6 +7,7 @@ import './unit-rows';
 import './po-items';
 import './kasir-pos';
 import './dashboard-charts';
+import './fullscreen';
 
 import Alpine from 'alpinejs';
 

@@ -4,6 +4,7 @@ namespace App\Http\Controllers\Gudang;
 
 use App\Http\Controllers\Controller;
 use App\Models\PurchaseOrder;
+use App\Models\PurchaseOrderReceipt;
 use App\Models\StockMovement;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
@@ -33,7 +34,7 @@ class PurchaseReceiptController extends Controller
                 ->with('error', "PO \"{$pembelian->po_number}\" tidak sedang menunggu penerimaan (status: {$pembelian->status}).");
         }
 
-        $pembelian->load(['supplier', 'items.product', 'items.productUnit']);
+        $pembelian->load(['supplier', 'items.product', 'items.productUnit', 'receipts.receivedBy']);
 
         return view('gudang.pembelian.show', ['po' => $pembelian]);
     }
@@ -44,10 +45,19 @@ class PurchaseReceiptController extends Controller
             return back()->with('error', 'PO ini tidak sedang menunggu penerimaan.');
         }
 
+        // Validasi bukti foto DI LUAR transaksi (fail fast) — supaya gudang
+        // langsung tahu kalau lupa upload foto, sebelum sistem repot-repot
+        // memproses qty/stok. PENTING (keamanan): `mimes:` eksplisit, BUKAN
+        // rule `image` generik (svg bisa stored-XSS) — sama seperti pola
+        // upload foto produk & bukti pembayaran.
+        $request->validate([
+            'proof' => ['required', 'image', 'mimes:jpeg,jpg,png,webp', 'max:2048'],
+        ]);
+
         $rawQuantities = $request->input('received', []); // [po_item_id => qty_diterima_sekarang]
         $anyProcessed = false;
 
-        DB::transaction(function () use ($pembelian, $rawQuantities, &$anyProcessed) {
+        DB::transaction(function () use ($request, $pembelian, $rawQuantities, &$anyProcessed) {
             // PENTING (race condition / double-submit): kunci ULANG PO ini beserta
             // semua item-nya DI SINI, di dalam transaksi — bukan pakai instance
             // $pembelian dari route-model-binding yang di-resolve SEBELUM transaksi
@@ -111,6 +121,18 @@ class PurchaseReceiptController extends Controller
             if (! $anyProcessed) {
                 throw ValidationException::withMessages(['received' => 'Isi minimal 1 qty penerimaan sebelum konfirmasi.']);
             }
+
+            // File baru disimpan ke disk DI SINI (setelah semua item lolos
+            // validasi qty di atas) — supaya kalau ada item yang gagal
+            // (throw ValidationException di tengah loop), tidak ada file
+            // ke-upload sia-sia yang jadi sampah tanpa baris DB penunjuknya.
+            $proofPath = $request->file('proof')->store('purchase-receipts', 'public');
+
+            PurchaseOrderReceipt::create([
+                'purchase_order_id' => $locked->id,
+                'proof_path' => $proofPath,
+                'received_by' => auth()->id(),
+            ]);
 
             $locked->refresh();
             $allFullyReceived = $locked->items->every(fn ($i) => $i->isFullyReceived());

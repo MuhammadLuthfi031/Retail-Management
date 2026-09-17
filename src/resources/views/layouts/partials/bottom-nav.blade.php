@@ -98,6 +98,13 @@
 
         <hr class="my-2 border-gray-100">
 
+        <button type="button" data-fullscreen-toggle
+                class="w-full flex items-center gap-3 px-4 py-3 rounded-lg text-sm font-medium text-gray-700 hover:bg-gray-50">
+            <span data-fullscreen-icon-expand><x-icon name="expand" /></span>
+            <span data-fullscreen-icon-compress class="hidden"><x-icon name="compress" /></span>
+            <span data-fullscreen-label>Fullscreen</span>
+        </button>
+
         <a href="{{ route('profile.edit') }}" class="flex items-center gap-3 px-4 py-3 rounded-lg text-sm font-medium text-gray-700 hover:bg-gray-50">
             <x-icon name="user-circle" />
             Profil Saya

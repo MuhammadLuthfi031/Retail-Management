@@ -29,7 +29,7 @@
                 </div>
             </div>
 
-            <form method="POST" action="{{ route('gudang.pembelian.store', $po) }}">
+            <form method="POST" action="{{ route('gudang.pembelian.store', $po) }}" enctype="multipart/form-data">
                 @csrf
 
                 <div class="bg-white shadow-sm sm:rounded-lg overflow-hidden overflow-x-auto">
@@ -68,10 +68,39 @@
                     </table>
                 </div>
 
+                <div class="bg-white shadow-sm sm:rounded-lg p-6 mt-4">
+                    <label class="block text-sm font-medium text-gray-700 mb-1">Bukti Penerimaan Barang</label>
+                    <p class="text-xs text-gray-400 mb-2">Foto fisik barang datang / nota pengiriman dari supplier. Wajib diisi sebelum konfirmasi.</p>
+                    <input type="file" name="proof" required accept="image/jpeg,image/png,image/webp"
+                           class="w-full text-sm text-gray-600 file:mr-3 file:py-1.5 file:px-3 file:rounded-md file:border-0 file:text-xs file:font-semibold file:bg-indigo-50 file:text-indigo-700 hover:file:bg-indigo-100">
+                    <p class="text-xs text-gray-400 mt-1">Format JPG/PNG/WEBP, maksimal 2MB.</p>
+                    @error('proof')
+                        <p class="text-xs text-red-600 mt-1">{{ $message }}</p>
+                    @enderror
+                </div>
+
                 <div class="flex justify-end mt-4">
                     <x-primary-button>Konfirmasi Penerimaan</x-primary-button>
                 </div>
             </form>
+
+            @if ($po->receipts->isNotEmpty())
+                <div class="bg-white shadow-sm sm:rounded-lg p-6">
+                    <h3 class="text-sm font-semibold text-gray-700 mb-3">Riwayat Bukti Penerimaan Sebelumnya</h3>
+                    <ul class="divide-y divide-gray-100 text-sm">
+                        @foreach ($po->receipts as $receipt)
+                            <li class="py-2.5 flex items-center justify-between gap-3">
+                                <div class="text-xs text-gray-400">
+                                    {{ $receipt->receivedBy->name ?? '—' }} &middot; {{ $receipt->created_at->format('d M Y H:i') }}
+                                </div>
+                                <a href="{{ Storage::url($receipt->proof_path) }}" target="_blank" rel="noopener" class="text-indigo-600 hover:underline text-xs font-medium shrink-0">
+                                    Lihat Bukti
+                                </a>
+                            </li>
+                        @endforeach
+                    </ul>
+                </div>
+            @endif
         </div>
     </div>
 </x-app-layout>

@@ -111,6 +111,12 @@
 
     <!-- User section -->
     <div class="border-t border-gray-100 p-3 space-y-1">
+        <button type="button" data-fullscreen-toggle
+                class="w-full flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium text-gray-600 hover:bg-gray-50 hover:text-gray-900 transition">
+            <span data-fullscreen-icon-expand><x-icon name="expand" /></span>
+            <span data-fullscreen-icon-compress class="hidden"><x-icon name="compress" /></span>
+            <span data-fullscreen-label>Fullscreen</span>
+        </button>
         <a href="{{ route('profile.edit') }}"
            class="flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium text-gray-600 hover:bg-gray-50 hover:text-gray-900 transition">
             <x-icon name="user-circle" />
