@@ -29,6 +29,12 @@
                 </div>
             </div>
 
+            @unless ($canReceive)
+                <div class="rounded-md bg-emerald-50 border border-emerald-200 px-4 py-3 text-sm text-emerald-700">
+                    PO ini sudah <strong>diterima lengkap</strong> — halaman ini sekarang cuma menampilkan riwayat, tidak bisa menerima barang lagi.
+                </div>
+            @endunless
+
             <form method="POST" action="{{ route('gudang.pembelian.store', $po) }}" enctype="multipart/form-data">
                 @csrf
 
@@ -41,7 +47,9 @@
                                 <th class="px-4 py-3 text-right font-medium text-gray-500 uppercase tracking-wider">Dipesan</th>
                                 <th class="px-4 py-3 text-right font-medium text-gray-500 uppercase tracking-wider">Sudah Diterima</th>
                                 <th class="px-4 py-3 text-right font-medium text-gray-500 uppercase tracking-wider">Sisa</th>
-                                <th class="px-4 py-3 text-right font-medium text-gray-500 uppercase tracking-wider">Terima Sekarang</th>
+                                @if ($canReceive)
+                                    <th class="px-4 py-3 text-right font-medium text-gray-500 uppercase tracking-wider">Terima Sekarang</th>
+                                @endif
                             </tr>
                         </thead>
                         <tbody class="divide-y divide-gray-100">
@@ -53,40 +61,44 @@
                                     <td class="px-4 py-3 text-right text-gray-500">{{ \App\Support\Number::trim((float) $item->quantity_ordered) }}</td>
                                     <td class="px-4 py-3 text-right text-gray-500">{{ \App\Support\Number::trim((float) $item->quantity_received) }}</td>
                                     <td class="px-4 py-3 text-right text-gray-500">{{ \App\Support\Number::trim($remaining) }}</td>
-                                    <td class="px-4 py-3 text-right">
-                                        @if ($remaining > 0)
-                                            <input type="number" step="0.001" min="0" max="{{ $remaining }}"
-                                                   name="received[{{ $item->id }}]" value="{{ old('received.' . $item->id, '') }}"
-                                                   placeholder="0" class="w-28 rounded-md border-gray-300 shadow-sm text-sm text-right focus:border-indigo-500 focus:ring-indigo-500">
-                                        @else
-                                            <span class="text-xs text-emerald-600 font-medium">Lengkap</span>
-                                        @endif
-                                    </td>
+                                    @if ($canReceive)
+                                        <td class="px-4 py-3 text-right">
+                                            @if ($remaining > 0)
+                                                <input type="number" step="0.001" min="0" max="{{ $remaining }}"
+                                                       name="received[{{ $item->id }}]" value="{{ old('received.' . $item->id, '') }}"
+                                                       placeholder="0" class="w-28 rounded-md border-gray-300 shadow-sm text-sm text-right focus:border-indigo-500 focus:ring-indigo-500">
+                                            @else
+                                                <span class="text-xs text-emerald-600 font-medium">Lengkap</span>
+                                            @endif
+                                        </td>
+                                    @endif
                                 </tr>
                             @endforeach
                         </tbody>
                     </table>
                 </div>
 
-                <div class="bg-white shadow-sm sm:rounded-lg p-6 mt-4">
-                    <label class="block text-sm font-medium text-gray-700 mb-1">Bukti Penerimaan Barang</label>
-                    <p class="text-xs text-gray-400 mb-2">Foto fisik barang datang / nota pengiriman dari supplier. Wajib diisi sebelum konfirmasi.</p>
-                    <input type="file" name="proof" required accept="image/jpeg,image/png,image/webp"
-                           class="w-full text-sm text-gray-600 file:mr-3 file:py-1.5 file:px-3 file:rounded-md file:border-0 file:text-xs file:font-semibold file:bg-indigo-50 file:text-indigo-700 hover:file:bg-indigo-100">
-                    <p class="text-xs text-gray-400 mt-1">Format JPG/PNG/WEBP, maksimal 2MB.</p>
-                    @error('proof')
-                        <p class="text-xs text-red-600 mt-1">{{ $message }}</p>
-                    @enderror
-                </div>
+                @if ($canReceive)
+                    <div class="bg-white shadow-sm sm:rounded-lg p-6 mt-4">
+                        <label class="block text-sm font-medium text-gray-700 mb-1">Bukti Penerimaan Barang</label>
+                        <p class="text-xs text-gray-400 mb-2">Foto fisik barang datang / nota pengiriman dari supplier. Wajib diisi sebelum konfirmasi.</p>
+                        <input type="file" name="proof" required accept="image/jpeg,image/png,image/webp"
+                               class="w-full text-sm text-gray-600 file:mr-3 file:py-1.5 file:px-3 file:rounded-md file:border-0 file:text-xs file:font-semibold file:bg-indigo-50 file:text-indigo-700 hover:file:bg-indigo-100">
+                        <p class="text-xs text-gray-400 mt-1">Format JPG/PNG/WEBP, maksimal 2MB.</p>
+                        @error('proof')
+                            <p class="text-xs text-red-600 mt-1">{{ $message }}</p>
+                        @enderror
+                    </div>
 
-                <div class="flex justify-end mt-4">
-                    <x-primary-button>Konfirmasi Penerimaan</x-primary-button>
-                </div>
+                    <div class="flex justify-end mt-4">
+                        <x-primary-button>Konfirmasi Penerimaan</x-primary-button>
+                    </div>
+                @endif
             </form>
 
             @if ($po->receipts->isNotEmpty())
                 <div class="bg-white shadow-sm sm:rounded-lg p-6">
-                    <h3 class="text-sm font-semibold text-gray-700 mb-3">Riwayat Bukti Penerimaan Sebelumnya</h3>
+                    <h3 class="text-sm font-semibold text-gray-700 mb-3">Riwayat Bukti Penerimaan</h3>
                     <ul class="divide-y divide-gray-100 text-sm">
                         @foreach ($po->receipts as $receipt)
                             <li class="py-2.5 flex items-center justify-between gap-3">

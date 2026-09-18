@@ -8,6 +8,7 @@ import './po-items';
 import './kasir-pos';
 import './dashboard-charts';
 import './fullscreen';
+import './stock-adjust-tabs';
 
 import Alpine from 'alpinejs';
 

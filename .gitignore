@@ -4,6 +4,13 @@
 .env.docker
 .env.*.local
 
+# Sertifikat TLS lokal (di-generate per instalasi toko lewat
+# docker/nginx/generate-certs.sh) — beda-beda tiap toko (IP LAN beda-beda),
+# jangan pernah ikut commit.
+docker/nginx/certs/*.pem
+docker/nginx/certs/*.key
+docker/nginx/certs/*.crt
+
 # OS / editor
 .DS_Store
 Thumbs.db

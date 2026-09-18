@@ -16,27 +16,39 @@ class PurchaseReceiptController extends Controller
 {
     public function index(Request $request): View
     {
+        // Tab "selesai" sengaja ditambahkan supaya PO yang sudah diterima
+        // lengkap TETAP bisa ditelusuri gudang (lihat riwayat bukti
+        // penerimaannya) — sebelumnya begitu status jadi "received", PO itu
+        // hilang total dari daftar ini dan halamannya diblokir, jadi riwayat
+        // buktinya tidak pernah bisa dilihat lagi oleh siapa pun di sisi gudang.
+        $tab = $request->input('tab') === 'selesai' ? 'selesai' : 'menunggu';
+
         $purchaseOrders = PurchaseOrder::with('supplier')
             ->withCount('items')
-            ->whereIn('status', ['ordered', 'partially_received'])
+            ->when(
+                $tab === 'selesai',
+                fn ($q) => $q->where('status', 'received'),
+                fn ($q) => $q->whereIn('status', ['ordered', 'partially_received'])
+            )
             ->when($request->search, fn ($q) => $q->where('po_number', 'like', "%{$request->search}%"))
-            ->orderBy('expected_date')
+            ->orderBy($tab === 'selesai' ? 'updated_at' : 'expected_date', $tab === 'selesai' ? 'desc' : 'asc')
             ->paginate(10)
             ->withQueryString();
 
-        return view('gudang.pembelian.index', compact('purchaseOrders'));
+        return view('gudang.pembelian.index', compact('purchaseOrders', 'tab'));
     }
 
-    public function show(PurchaseOrder $pembelian): View|RedirectResponse
+    public function show(PurchaseOrder $pembelian): View
     {
-        if (! in_array($pembelian->status, ['ordered', 'partially_received'], true)) {
-            return redirect()->route('gudang.pembelian.index')
-                ->with('error', "PO \"{$pembelian->po_number}\" tidak sedang menunggu penerimaan (status: {$pembelian->status}).");
-        }
+        // PO yang sudah "received" (selesai) TETAP boleh dibuka — cuma dalam
+        // mode lihat-saja (form input qty & upload bukti disembunyikan di
+        // view), supaya riwayat bukti penerimaannya bisa selalu ditelusuri
+        // ulang, bukan jadi jalan buntu begitu status berubah jadi selesai.
+        $canReceive = in_array($pembelian->status, ['ordered', 'partially_received'], true);
 
         $pembelian->load(['supplier', 'items.product', 'items.productUnit', 'receipts.receivedBy']);
 
-        return view('gudang.pembelian.show', ['po' => $pembelian]);
+        return view('gudang.pembelian.show', ['po' => $pembelian, 'canReceive' => $canReceive]);
     }
 
     public function store(Request $request, PurchaseOrder $pembelian): RedirectResponse

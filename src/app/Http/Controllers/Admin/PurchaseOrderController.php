@@ -36,7 +36,7 @@ class PurchaseOrderController extends Controller
 
     public function show(PurchaseOrder $pembelian): View
     {
-        $pembelian->load(['supplier', 'createdBy', 'items.product', 'items.productUnit', 'items.receivedBy', 'payments.uploadedBy']);
+        $pembelian->load(['supplier', 'createdBy', 'items.product', 'items.productUnit', 'items.receivedBy', 'payments.uploadedBy', 'receipts.receivedBy']);
         $suppliers = Supplier::active()->orderBy('name')->get();
         $products = $this->productsForForm();
 

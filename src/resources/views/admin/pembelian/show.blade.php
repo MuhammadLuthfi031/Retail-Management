@@ -131,6 +131,25 @@
                 </div>
             @endif
 
+            @if ($po->receipts->isNotEmpty())
+                <!-- Riwayat Bukti Penerimaan Barang -->
+                <div class="bg-white shadow-sm sm:rounded-lg p-6">
+                    <h3 class="text-sm font-semibold text-gray-700 mb-3">Riwayat Bukti Penerimaan Barang</h3>
+                    <ul class="divide-y divide-gray-100 text-sm">
+                        @foreach ($po->receipts as $receipt)
+                            <li class="py-2.5 flex items-center justify-between gap-3">
+                                <div class="text-xs text-gray-400">
+                                    {{ $receipt->receivedBy->name ?? '—' }} &middot; {{ $receipt->created_at->format('d M Y H:i') }}
+                                </div>
+                                <a href="{{ Storage::url($receipt->proof_path) }}" target="_blank" rel="noopener" class="text-indigo-600 hover:underline text-xs font-medium shrink-0">
+                                    Lihat Bukti
+                                </a>
+                            </li>
+                        @endforeach
+                    </ul>
+                </div>
+            @endif
+
             <!-- Items -->
             <div class="bg-white shadow-sm sm:rounded-lg overflow-hidden overflow-x-auto">
                 <table class="min-w-full divide-y divide-gray-200 text-sm">

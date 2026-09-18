@@ -1,0 +1,67 @@
+# File ini pakai ekstensi .template SENGAJA — image resmi nginx otomatis
+# memproses semua file di /etc/nginx/templates/*.template lewat `envsubst`
+# saat container start, lalu hasilnya ditulis ke /etc/nginx/conf.d/ (ekstensi
+# .template dibuang). Variabel ${APP_HTTPS_PORT} di bawah diisi dari
+# environment container (lihat docker-compose.yml, service `webserver`),
+# yang nilainya berasal dari APP_SSL_PORT di .env root.
+#
+# JANGAN mount file ini langsung ke /etc/nginx/conf.d/ — kalau di-mount
+# ke situ, isinya dipakai APA ADANYA tanpa substitusi, dan Nginx akan gagal
+# start karena literal string "${APP_HTTPS_PORT}" bukan directive yang valid.
+
+# === Redirect semua trafik HTTP -> HTTPS ===
+# WAJIB, bukan cuma "nice to have": fitur scan barcode via kamera
+# (getUserMedia) diblokir browser kalau diakses lewat HTTP di IP LAN
+# (mis. http://192.168.1.10:8080) — arahkan paksa ke https:// dari awal
+# supaya kasir tidak pernah "kebiasaan" pakai URL http://.
+server {
+    listen 80;
+    server_name _;
+    return 301 https://$host:${APP_HTTPS_PORT}$request_uri;
+}
+
+server {
+    listen 443 ssl;
+    http2 on;
+    index index.php index.html;
+    server_name _;
+    root /var/www/public;
+
+    client_max_body_size 20M;
+
+    ssl_certificate     /etc/nginx/certs/cert.pem;
+    ssl_certificate_key /etc/nginx/certs/key.pem;
+
+    # Protokol & cipher modern (baseline Mozilla "Intermediate") — cukup untuk
+    # sertifikat self-signed/mkcert, kompatibel dengan browser kasir yang wajar.
+    ssl_protocols TLSv1.2 TLSv1.3;
+    ssl_prefer_server_ciphers off;
+    ssl_session_cache shared:SSL:10m;
+    ssl_session_timeout 1d;
+
+    add_header X-Frame-Options "SAMEORIGIN";
+    add_header X-Content-Type-Options "nosniff";
+    add_header Strict-Transport-Security "max-age=63072000" always;
+
+    location / {
+        try_files $uri $uri/ /index.php?$query_string;
+    }
+
+    location ~ \.php$ {
+        fastcgi_pass app:9000;
+        fastcgi_index index.php;
+        fastcgi_param SCRIPT_FILENAME $document_root$fastcgi_script_name;
+        fastcgi_param HTTPS on;
+        include fastcgi_params;
+        fastcgi_read_timeout 300;
+    }
+
+    location ~ /\.(?!well-known).* {
+        deny all;
+    }
+
+    location ~* \.(jpg|jpeg|png|gif|ico|css|js|svg|woff|woff2)$ {
+        expires 30d;
+        access_log off;
+    }
+}

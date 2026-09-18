@@ -1,6 +1,6 @@
 @php
-    $statusLabel = ['ordered' => 'Dipesan (belum ada barang masuk)', 'partially_received' => 'Diterima Sebagian'];
-    $statusColor = ['ordered' => 'bg-blue-100 text-blue-700', 'partially_received' => 'bg-amber-100 text-amber-700'];
+    $statusLabel = ['ordered' => 'Dipesan (belum ada barang masuk)', 'partially_received' => 'Diterima Sebagian', 'received' => 'Diterima Lengkap'];
+    $statusColor = ['ordered' => 'bg-blue-100 text-blue-700', 'partially_received' => 'bg-amber-100 text-amber-700', 'received' => 'bg-emerald-100 text-emerald-700'];
 @endphp
 
 <x-app-layout>
@@ -14,7 +14,19 @@
         <div class="max-w-6xl mx-auto sm:px-6 lg:px-8">
             <x-alert />
 
+            <div class="flex items-center gap-1 mb-4 border-b border-gray-200">
+                <a href="{{ route('gudang.pembelian.index', ['tab' => 'menunggu', 'search' => request('search')]) }}"
+                   class="px-4 py-2 text-sm font-medium border-b-2 -mb-px {{ $tab === 'menunggu' ? 'border-indigo-600 text-indigo-600' : 'border-transparent text-gray-500 hover:text-gray-700' }}">
+                    Menunggu
+                </a>
+                <a href="{{ route('gudang.pembelian.index', ['tab' => 'selesai', 'search' => request('search')]) }}"
+                   class="px-4 py-2 text-sm font-medium border-b-2 -mb-px {{ $tab === 'selesai' ? 'border-indigo-600 text-indigo-600' : 'border-transparent text-gray-500 hover:text-gray-700' }}">
+                    Selesai
+                </a>
+            </div>
+
             <form method="GET" class="mb-4">
+                <input type="hidden" name="tab" value="{{ $tab }}">
                 <input type="text" name="search" value="{{ request('search') }}"
                        placeholder="Cari nomor PO..."
                        class="w-full sm:w-72 rounded-md border-gray-300 shadow-sm text-sm focus:border-indigo-500 focus:ring-indigo-500">
@@ -46,14 +58,14 @@
                                 </td>
                                 <td class="px-4 py-3 text-right">
                                     <a href="{{ route('gudang.pembelian.show', $po) }}" class="text-indigo-600 hover:text-indigo-900 font-medium">
-                                        Konfirmasi Penerimaan
+                                        {{ $tab === 'selesai' ? 'Lihat Riwayat' : 'Konfirmasi Penerimaan' }}
                                     </a>
                                 </td>
                             </tr>
                         @empty
                             <tr>
                                 <td colspan="6" class="px-6 py-10 text-center text-gray-400">
-                                    Tidak ada PO yang menunggu konfirmasi penerimaan saat ini.
+                                    {{ $tab === 'selesai' ? 'Belum ada PO yang selesai diterima.' : 'Tidak ada PO yang menunggu konfirmasi penerimaan saat ini.' }}
                                 </td>
                             </tr>
                         @endforelse
