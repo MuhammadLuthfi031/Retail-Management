@@ -63,7 +63,7 @@ class PurchaseReceiptController extends Controller
         // rule `image` generik (svg bisa stored-XSS) — sama seperti pola
         // upload foto produk & bukti pembayaran.
         $request->validate([
-            'proof' => ['required', 'image', 'mimes:jpeg,jpg,png,webp', 'max:2048'],
+            'proof' => ['required', 'mimes:jpeg,jpg,png,webp', 'max:2048'],
         ]);
 
         $rawQuantities = $request->input('received', []); // [po_item_id => qty_diterima_sekarang]

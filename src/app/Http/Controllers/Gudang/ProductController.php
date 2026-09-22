@@ -6,6 +6,7 @@ use App\Http\Controllers\Controller;
 use App\Models\Category;
 use App\Models\Product;
 use App\Models\ProductUnit;
+use App\Models\PurchaseOrderItem;
 use App\Models\StockMovement;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
@@ -56,7 +57,7 @@ class ProductController extends Controller
         // sekaligus jadi "self-healing": begitu produk ini disimpan ulang
         // (edit apa saja), sort_order-nya otomatis diperbaiki mengikuti
         // urutan submit yang sekarang sudah benar (lihat extractUnits()).
-        $product->load(['category', 'units' => fn ($q) => $q->orderByDesc('conversion_to_base')->orderBy('sort_order')]);
+        $product->load(['category', 'baseUnit', 'units' => fn ($q) => $q->orderByDesc('conversion_to_base')->orderBy('sort_order')]);
         $categories = Category::orderBy('name')->get();
 
         return view('gudang.produk.show', compact('product', 'categories'));
@@ -67,7 +68,6 @@ class ProductController extends Controller
         $validated = $this->validatedProduct($request);
         $units = $this->extractUnits($request);
 
-        $validated['sku'] = $validated['sku'] ?: $this->generateSku();
         // Form sudah kirim hidden input fallback ("0") sebelum kedua checkbox ini
         // (lihat _form.blade.php), jadi field SELALU ada di request — tidak perlu
         // (dan tidak boleh) diberi default di sini. Sebelumnya is_active diberi
@@ -82,8 +82,12 @@ class ProductController extends Controller
         }
 
         $product = DB::transaction(function () use ($validated, $units, $request) {
+            // createWithUniqueSku() men-generate SKU sendiri (dengan lock+retry,
+            // lihat Product::generateSku()) kalau $validated['sku'] kosong — WAJIB
+            // dipanggil di dalam DB::transaction() ini supaya lockForUpdate di
+            // dalamnya benar-benar berefek (sama seperti pola invoice/PO number).
             /** @var Product $product */
-            $product = Product::create($validated);
+            $product = Product::createWithUniqueSku($validated);
             $this->syncUnits($product, $units);
 
             $initialStock = (float) $request->input('initial_stock', 0);
@@ -200,7 +204,7 @@ class ProductController extends Controller
             // SVG bisa berisi <script> dan berpotensi stored-XSS kalau nanti
             // dibuka langsung di tab baru (bukan lewat <img>). Foto produk
             // cukup format raster umum, jadi svg/bmp/gif sengaja tidak masuk.
-            'image' => ['nullable', 'image', 'mimes:jpeg,jpg,png,webp', 'max:2048'],
+            'image' => ['nullable', 'mimes:jpeg,jpg,png,webp', 'max:2048'],
         ]);
     }
 
@@ -314,12 +318,33 @@ class ProductController extends Controller
     {
         $keepIds = [];
 
+        // Ambil semua baris satuan EXISTING (yang punya `id` dari form) sekaligus
+        // dalam 1 query — sebelumnya ProductUnit::find($id) dipanggil satu per satu
+        // di dalam loop di bawah (N+1). Di-scope lewat $product->units() (bukan
+        // ProductUnit::whereIn(...) polos) sekalian menutup celah: kalau form
+        // di-tamper untuk kirim `id` milik satuan produk LAIN, query ini tidak
+        // akan menemukannya sama sekali (bukan cuma soal performa, ini juga
+        // proteksi supaya edit produk A tidak bisa diam-diam mengubah baris
+        // satuan milik produk B).
+        $existingIds = collect($units)->pluck('id')->filter()->all();
+        $existingUnits = $product->units()->whereIn('id', $existingIds)->get()->keyBy('id');
+
+        // Satuan produk ini yang SUDAH PERNAH dipakai di Purchase Order — dicek
+        // 1x di sini lewat 1 query batch, dipakai utk 2 keperluan di bawah:
+        // (1) larangan ubah conversion_to_base kalau satuan itu sudah kepakai di
+        // PO, (2) larangan hapus satuan yang sudah kepakai di PO. Sebelumnya
+        // ->purchaseOrderItems()->exists() dipanggil per baris di 2 tempat
+        // berbeda (N+1 ganda).
+        $usedInPoUnitIds = PurchaseOrderItem::whereIn('product_unit_id', $product->units()->pluck('id'))
+            ->pluck('product_unit_id')
+            ->unique();
+
         foreach ($units as $unitData) {
             $id = $unitData['id'] ?? null;
             unset($unitData['id']);
 
             if ($id) {
-                $unit = ProductUnit::find($id);
+                $unit = $existingUnits->get($id);
 
                 if ($unit) {
                     // PENTING (data-integrity): rasio konversi yang sudah dipakai di
@@ -335,7 +360,7 @@ class ProductController extends Controller
                         (float) $unit->conversion_to_base - (float) $unitData['conversion_to_base']
                     ) > 0.0005;
 
-                    if ($conversionChanged && $unit->purchaseOrderItems()->exists()) {
+                    if ($conversionChanged && $usedInPoUnitIds->contains($unit->id)) {
                         throw ValidationException::withMessages([
                             'units' => "Rasio/isi satuan \"{$unit->unit_name}\" tidak bisa diubah karena sudah dipakai di Purchase Order — mengubahnya akan membuat riwayat harga beli & qty PO lama jadi tidak konsisten dengan kondisi produk sekarang. Kalau rasionya memang salah dari awal, tambahkan sebagai satuan baru dan kosongkan harga jual satuan lama.",
                         ]);
@@ -356,8 +381,9 @@ class ProductController extends Controller
         // Satuan yang sudah pernah dipakai di Purchase Order TIDAK BOLEH dihapus —
         // purchase_order_items.product_unit_id adalah foreign key tanpa cascade,
         // jadi penghapusan paksa akan gagal di level database (500 error) kalau
-        // tidak dicegah di sini dulu dengan pesan yang jelas.
-        $blocked = $unitsToDelete->filter(fn (ProductUnit $unit) => $unit->purchaseOrderItems()->exists());
+        // tidak dicegah di sini dulu dengan pesan yang jelas. Pakai $usedInPoUnitIds
+        // yang sudah dihitung di atas (1 query), bukan ->exists() per baris lagi.
+        $blocked = $unitsToDelete->filter(fn (ProductUnit $unit) => $usedInPoUnitIds->contains($unit->id));
 
         if ($blocked->isNotEmpty()) {
             $names = $blocked->pluck('unit_name')->implode('", "');
@@ -369,18 +395,5 @@ class ProductController extends Controller
         foreach ($unitsToDelete as $unit) {
             $unit->delete();
         }
-    }
-
-    private function generateSku(): string
-    {
-        $number = (Product::max('id') ?? 0) + 1;
-        $sku = 'PRD-' . str_pad((string) $number, 4, '0', STR_PAD_LEFT);
-
-        while (Product::where('sku', $sku)->exists()) {
-            $number++;
-            $sku = 'PRD-' . str_pad((string) $number, 4, '0', STR_PAD_LEFT);
-        }
-
-        return $sku;
     }
 }

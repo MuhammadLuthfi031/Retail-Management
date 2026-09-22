@@ -59,8 +59,16 @@ class LaporanController extends Controller
             ->when($request->filled('user_id'), fn ($q) => $q->where('user_id', $request->user_id))
             ->when($request->filled('payment_method'), fn ($q) => $q->where('payment_method', $request->payment_method));
 
-        $jumlahTransaksi = $base()->count();
-        $totalOmzet = (int) $base()->sum('grand_total');
+        // 1 query gabungan (COUNT + SUM sekaligus) menggantikan 2 query
+        // terpisah yang sebelumnya ada di sini (masing-masing scan tabel yang
+        // sama dengan filter yang sama persis). toBase() sengaja dipakai
+        // supaya query ini turun ke query builder polos (hasilnya stdClass,
+        // bukan model Transaction) — tanpa itu, eager-load with('user') dari
+        // $base() ikut jalan sia-sia padahal cuma butuh 2 angka agregat, bukan
+        // baris transaksi & relasinya.
+        $summary = $base()->toBase()->selectRaw('COUNT(*) as jumlah, COALESCE(SUM(grand_total), 0) as total')->first();
+        $jumlahTransaksi = (int) $summary->jumlah;
+        $totalOmzet = (int) $summary->total;
         $rataRata = $jumlahTransaksi > 0 ? (int) round($totalOmzet / $jumlahTransaksi) : 0;
 
         $paymentLabels = ['cash' => 'Cash', 'debit' => 'Debit', 'qris' => 'QRIS', 'transfer' => 'Transfer'];

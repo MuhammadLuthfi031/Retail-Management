@@ -4,6 +4,7 @@ namespace App\Http\Controllers\Gudang;
 
 use App\Http\Controllers\Controller;
 use App\Models\Category;
+use Illuminate\Database\QueryException;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Str;
@@ -29,9 +30,7 @@ class CategoryController extends Controller
             'description' => ['nullable', 'string', 'max:1000'],
         ]);
 
-        $validated['slug'] = $this->uniqueSlug($validated['name']);
-
-        Category::create($validated);
+        $this->createWithUniqueSlug($validated);
 
         return back()->with('success', 'Kategori berhasil ditambahkan.');
     }
@@ -44,10 +43,10 @@ class CategoryController extends Controller
         ]);
 
         if ($validated['name'] !== $category->name) {
-            $validated['slug'] = $this->uniqueSlug($validated['name'], $category->id);
+            $this->updateWithUniqueSlug($category, $validated);
+        } else {
+            $category->update($validated);
         }
-
-        $category->update($validated);
 
         return back()->with('success', 'Kategori berhasil diperbarui.');
     }
@@ -79,5 +78,55 @@ class CategoryController extends Controller
         }
 
         return $slug;
+    }
+
+    /**
+     * Simpan Category baru dengan slug yang DIJAMIN unik, walau ada 2
+     * admin/gudang yang buat kategori dengan nama sama nyaris bersamaan.
+     * Pola retry sama seperti Transaction::createWithUniqueInvoice() /
+     * Product::createWithUniqueSku() — bedanya di sini tidak perlu
+     * lockForUpdate() dulu (slug bukan angka urut yang bergantung ke baris
+     * sebelumnya seperti invoice/PO/SKU), cukup coba lagi dengan uniqueSlug()
+     * yang baru kalau constraint unik di DB menolak percobaan sebelumnya.
+     */
+    private function createWithUniqueSlug(array $validated, int $maxAttempts = 3): Category
+    {
+        for ($attempt = 1; $attempt <= $maxAttempts; $attempt++) {
+            try {
+                return Category::create([
+                    ...$validated,
+                    'slug' => $this->uniqueSlug($validated['name']),
+                ]);
+            } catch (QueryException $e) {
+                if ($e->getCode() !== '23000' || $attempt === $maxAttempts) {
+                    throw $e;
+                }
+                // Lanjut ke percobaan berikutnya dengan slug baru.
+            }
+        }
+
+        throw new \RuntimeException('Gagal membuat kategori dengan slug unik setelah beberapa kali percobaan.');
+    }
+
+    /** Sama seperti createWithUniqueSlug(), untuk kasus mengubah nama kategori yang sudah ada. */
+    private function updateWithUniqueSlug(Category $category, array $validated, int $maxAttempts = 3): void
+    {
+        for ($attempt = 1; $attempt <= $maxAttempts; $attempt++) {
+            try {
+                $category->update([
+                    ...$validated,
+                    'slug' => $this->uniqueSlug($validated['name'], $category->id),
+                ]);
+
+                return;
+            } catch (QueryException $e) {
+                if ($e->getCode() !== '23000' || $attempt === $maxAttempts) {
+                    throw $e;
+                }
+                // Lanjut ke percobaan berikutnya dengan slug baru.
+            }
+        }
+
+        throw new \RuntimeException('Gagal memperbarui kategori dengan slug unik setelah beberapa kali percobaan.');
     }
 }

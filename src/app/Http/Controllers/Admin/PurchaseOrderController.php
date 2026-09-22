@@ -82,13 +82,24 @@ class PurchaseOrderController extends Controller
                 'total_amount' => collect($items)->sum('subtotal'),
             ]);
 
+            // Ambil semua item EXISTING (yang punya `id` dari form) sekaligus dalam
+            // 1 query — sebelumnya PurchaseOrderItem::find($id) dipanggil satu per
+            // satu di dalam loop (N+1). Di-scope lewat $pembelian->items() (bukan
+            // PurchaseOrderItem::find() polos) sekalian menutup celah: kalau form
+            // di-tamper untuk kirim `id` item milik PO LAIN, query ini tidak akan
+            // menemukannya sama sekali (bukan cuma soal performa, ini juga proteksi
+            // supaya edit PO A tidak bisa diam-diam mengubah qty/harga item milik PO
+            // B — pola sama seperti fix di ProductController::syncUnits()).
+            $existingIds = collect($items)->pluck('id')->filter()->all();
+            $existingItems = $pembelian->items()->whereIn('id', $existingIds)->get()->keyBy('id');
+
             $keepIds = [];
             foreach ($items as $item) {
                 $id = $item['id'] ?? null;
                 unset($item['id']);
 
                 if ($id) {
-                    $poItem = PurchaseOrderItem::find($id);
+                    $poItem = $existingItems->get($id);
                     $poItem?->update($item);
                     if ($poItem) {
                         $keepIds[] = $poItem->id;
@@ -121,7 +132,7 @@ class PurchaseOrderController extends Controller
             // PENTING (keamanan): pakai `mimes:` eksplisit, BUKAN rule `image`
             // generik — rule `image` bawaan Laravel ikut meloloskan SVG yang
             // berpotensi stored-XSS. Sama seperti pola upload foto produk.
-            'proof' => ['required', 'image', 'mimes:jpeg,jpg,png,webp', 'max:2048'],
+            'proof' => ['required', 'mimes:jpeg,jpg,png,webp', 'max:2048'],
         ]);
 
         // Status pembayaran CUMA BOLEH MAJU — tidak pernah bisa dikembalikan

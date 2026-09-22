@@ -188,10 +188,20 @@ class PosController extends Controller
             $totalDiscount = 0;
             $lines = [];
 
+            // Ambil & lock SEMUA ProductUnit yang direferensikan keranjang dalam 1
+            // query (sebelumnya: 1 query per baris di dalam loop di bawah — N+1
+            // di jalur paling sering dipanggil di seluruh aplikasi, tiap transaksi
+            // kasir). orderBy('id') sengaja ditambahkan supaya urutan pengambilan
+            // lock antar baris SELALU konsisten (naik dari id terkecil) — tanpa
+            // ini, 2 kasir checkout nyaris bersamaan dengan produk sama tapi
+            // urutan keranjang berbeda bisa saling tunggu (deadlock) di database.
+            // lockForUpdate di sini + lock lagi di dalam StockMovement::record()
+            // di bawah aman (savepoint bersarang, koneksi & lock yang sama).
+            $unitIds = collect($validated['items'])->pluck('unit_id')->unique();
+            $units = ProductUnit::with('product')->lockForUpdate()->whereIn('id', $unitIds)->orderBy('id')->get()->keyBy('id');
+
             foreach ($validated['items'] as $item) {
-                // lockForUpdate di sini + lock lagi di dalam StockMovement::record()
-                // di bawah aman (savepoint bersarang, koneksi & lock yang sama).
-                $unit = ProductUnit::with('product')->lockForUpdate()->find($item['unit_id']);
+                $unit = $units->get($item['unit_id']);
 
                 if (! $unit || ! $unit->product || $unit->product_id !== (int) $item['product_id']) {
                     throw ValidationException::withMessages([
@@ -276,14 +286,19 @@ class PosController extends Controller
                 );
 
                 // PENTING: baca average_cost SETELAH StockMovement::record() di
-                // atas (yang lockForUpdate baris produk ini), BUKAN dari objek
-                // $line['product'] yang sudah basi sejak awal request — supaya
-                // snapshot cost basis di transaction_details akurat walau ada
-                // pembelian lain yang barusan mengubah average_cost produk ini
-                // persis di detik yang sama. Snapshot ini basis Laporan
-                // Laba/Rugi (§7.3) supaya tetap akurat historis meski
-                // average_cost produk berubah lagi di masa depan.
-                $costBasis = $line['product']->refresh()->average_cost;
+                // atas (yang lockForUpdate baris produk ini), BUKAN dari nilai
+                // yang sudah basi sejak awal request — supaya snapshot cost basis
+                // di transaction_details akurat walau ada pembelian lain yang
+                // barusan mengubah average_cost produk ini persis di detik yang
+                // sama. Snapshot ini basis Laporan Laba/Rugi (§7.3) supaya tetap
+                // akurat historis meski average_cost produk berubah lagi nanti.
+                //
+                // TIDAK perlu query refresh() lagi di sini (dulu ada, sudah
+                // dihapus): StockMovement::record() di atas sudah mengembalikan
+                // attribute produk yang fresh langsung ke objek $line['product']
+                // ini lewat setRawAttributes() — refresh() cuma mengulang query
+                // yang hasilnya sudah pasti sama, jadi murni query berlebih.
+                $costBasis = $line['product']->average_cost;
 
                 $transaction->details()->create([
                     'product_id' => $line['product']->id,

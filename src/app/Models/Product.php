@@ -6,6 +6,7 @@ use App\Support\Number;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
+use Illuminate\Database\QueryException;
 
 class Product extends Model
 {
@@ -105,6 +106,73 @@ class Product extends Model
     public function scopeActive(Builder $query): Builder
     {
         return $query->where('is_active', true);
+    }
+
+    /**
+     * Auto-generate SKU urut ("PRD-0001") kalau kolom sku dikosongkan di form
+     * (lihat createWithUniqueSku()). PENTING (race condition): kunci baris
+     * produk TERAKHIR yang SKU-nya mengikuti pola auto-generate ini dengan
+     * lockForUpdate() — pola yang sama dengan
+     * Transaction::generateInvoiceNumber() dan PurchaseOrder::generatePoNumber().
+     * WAJIB dipanggil dari dalam DB::transaction() yang sudah berjalan.
+     */
+    public static function generateSku(): string
+    {
+        $last = self::where('sku', 'like', 'PRD-%')
+            ->orderByDesc('id')
+            ->lockForUpdate()
+            ->first();
+
+        $number = $last ? ((int) substr($last->sku, 4)) + 1 : 1;
+
+        return 'PRD-' . str_pad((string) $number, 4, '0', STR_PAD_LEFT);
+    }
+
+    /**
+     * Simpan Product baru dengan SKU yang DIJAMIN unik, walau ada 2 admin/gudang
+     * yang buat produk baru nyaris bersamaan tanpa isi SKU manual. Dipakai
+     * ProductController::store() sebagai pengganti
+     * `self::create([...'sku' => generateSku()...])` langsung.
+     *
+     * Kalau caller SUDAH mengisi 'sku' manual (bukan dikosongkan), retry di
+     * sini dilewati sama sekali — keunikannya sudah divalidasi di level
+     * request (`unique:products,sku`) sebelum sampai ke method ini, jadi
+     * generateSku() tidak relevan untuk kasus itu.
+     *
+     * Kenapa perlu lapis retry padahal generateSku() sudah dikunci: sama
+     * seperti Transaction::createWithUniqueInvoice() — lock di atas cuma
+     * bekerja kalau SUDAH ADA baris produk lain dengan pola SKU itu untuk
+     * dikunci. Untuk produk PERTAMA yang dibuat dengan pola ini, 2 proses
+     * bisa sama-sama lolos dengan angka yang sama lalu sama-sama coba INSERT.
+     */
+    public static function createWithUniqueSku(array $attributes, int $maxAttempts = 3): self
+    {
+        if (! empty($attributes['sku'])) {
+            return self::create($attributes);
+        }
+
+        for ($attempt = 1; $attempt <= $maxAttempts; $attempt++) {
+            try {
+                return self::create([
+                    ...$attributes,
+                    'sku' => self::generateSku(),
+                ]);
+            } catch (QueryException $e) {
+                $isIntegrityViolation = $e->getCode() === '23000';
+
+                if (! $isIntegrityViolation || $attempt === $maxAttempts) {
+                    throw $e;
+                }
+                // Lanjut ke percobaan berikutnya dengan SKU baru.
+            }
+        }
+
+        // Baris ini secara LOGIKA tidak akan pernah kesampaian — percobaan
+        // terakhir ($attempt === $maxAttempts) di atas selalu throw kalau
+        // masih gagal. Tetap ditulis eksplisit supaya PHP & static analyzer
+        // tidak menganggap method ber-return-type `self` ini diam-diam bisa
+        // menghasilkan null.
+        throw new \RuntimeException('Gagal membuat SKU produk yang unik setelah beberapa kali percobaan.');
     }
 
     /**

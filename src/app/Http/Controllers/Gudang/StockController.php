@@ -16,7 +16,7 @@ class StockController extends Controller
 {
     public function index(Request $request): View
     {
-        $products = Product::with(['category', 'units'])
+        $products = Product::with(['category', 'units', 'baseUnit'])
             ->active()
             ->when($request->search, function ($q) use ($request) {
                 $q->where(function ($q2) use ($request) {

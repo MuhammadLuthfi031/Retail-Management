@@ -102,5 +102,13 @@ class Transaction extends Model
                 // Lanjut ke percobaan berikutnya dengan invoice_number baru.
             }
         }
+
+        // Baris ini secara LOGIKA tidak akan pernah kesampaian — percobaan
+        // terakhir ($attempt === $maxAttempts) di atas selalu throw kalau
+        // masih gagal. Tetap ditulis eksplisit supaya PHP & static analyzer
+        // tidak menganggap method ber-return-type `self` ini diam-diam bisa
+        // menghasilkan null — konsisten dengan
+        // PurchaseOrder::createWithUniquePoNumber() yang punya pengaman sama.
+        throw new \RuntimeException('Gagal membuat invoice_number yang unik setelah beberapa kali percobaan.');
     }
 }

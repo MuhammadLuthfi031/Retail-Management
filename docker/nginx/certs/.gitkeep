@@ -1,3 +1,0 @@
-Folder ini menyimpan cert.pem & key.pem hasil `docker/nginx/generate-certs.sh`.
-Isinya sengaja tidak ikut di-commit (lihat .gitignore) karena berbeda-beda
-per instalasi toko. File ini cuma placeholder supaya folder tetap ada di git.
