@@ -32,7 +32,7 @@
                        class="w-full sm:w-72 rounded-md border-gray-300 shadow-sm text-sm focus:border-indigo-500 focus:ring-indigo-500">
             </form>
 
-            <div class="bg-white shadow-sm sm:rounded-lg overflow-hidden overflow-x-auto">
+            <div class="hidden md:block bg-white shadow-sm sm:rounded-lg overflow-hidden overflow-x-auto">
                 <table class="min-w-full divide-y divide-gray-200 text-sm">
                     <thead class="bg-gray-50">
                         <tr>
@@ -71,6 +71,31 @@
                         @endforelse
                     </tbody>
                 </table>
+            </div>
+
+            <!-- Kartu — mobile (<768px), menggantikan tabel yang tadinya harus digeser horizontal -->
+            <div class="md:hidden space-y-2.5">
+                @forelse ($purchaseOrders as $po)
+                    <a href="{{ route('gudang.pembelian.show', $po) }}" class="block bg-white border border-gray-200 rounded-xl p-3.5">
+                        <div class="flex items-center justify-between gap-2">
+                            <span class="text-sm font-semibold text-gray-900">{{ $po->po_number }}</span>
+                            <span class="inline-flex px-2 py-0.5 rounded-full text-[11px] font-medium {{ $statusColor[$po->status] }}">
+                                {{ $statusLabel[$po->status] }}
+                            </span>
+                        </div>
+                        <div class="text-xs text-gray-500 mt-1">{{ $po->supplier->name ?? '—' }}</div>
+                        <div class="flex items-center justify-between mt-2.5 text-xs">
+                            <span class="text-gray-500">Target: {{ $po->expected_date?->format('d M Y') ?? '—' }} &middot; {{ $po->items_count }} item</span>
+                            <span class="text-indigo-600 font-semibold whitespace-nowrap">
+                                {{ $tab === 'selesai' ? 'Lihat Riwayat' : 'Konfirmasi' }} &rarr;
+                            </span>
+                        </div>
+                    </a>
+                @empty
+                    <div class="bg-white border border-gray-200 rounded-xl py-10 text-center text-gray-400 text-sm">
+                        {{ $tab === 'selesai' ? 'Belum ada PO yang selesai diterima.' : 'Tidak ada PO yang menunggu konfirmasi penerimaan saat ini.' }}
+                    </div>
+                @endforelse
             </div>
 
             <div class="mt-4">{{ $purchaseOrders->links() }}</div>

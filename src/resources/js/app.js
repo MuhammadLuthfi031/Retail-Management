@@ -9,6 +9,8 @@ import './kasir-pos';
 import './dashboard-charts';
 import './fullscreen';
 import './stock-adjust-tabs';
+import './collapse-toggle';
+import './form-segments';
 
 import Alpine from 'alpinejs';
 

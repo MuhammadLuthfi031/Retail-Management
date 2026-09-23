@@ -36,7 +36,8 @@
                 @endif
             </form>
 
-            <div class="bg-white shadow-sm sm:rounded-lg overflow-hidden overflow-x-auto">
+            <!-- ====== Desktop/tablet: tabel (≥768px) ====== -->
+            <div class="hidden md:block bg-white shadow-sm sm:rounded-lg overflow-hidden overflow-x-auto">
                 <table class="min-w-full divide-y divide-gray-200 text-sm">
                     <thead class="bg-gray-50">
                         <tr>
@@ -77,80 +78,6 @@
                                     </button>
                                 </td>
                             </tr>
-
-                            <!-- Modal Sesuaikan Stok (gabungan Keluar + Opname, 2 tab) -->
-                            <x-modal.modal name="stok-sesuaikan-{{ $product->id }}">
-                                <div class="p-6">
-                                    <h3 class="text-lg font-medium text-gray-900 mb-1">Sesuaikan Stok</h3>
-                                    <p class="text-sm text-gray-500 mb-4">{{ $product->name }}</p>
-
-                                    <div class="flex gap-1 border-b border-gray-200 mb-4">
-                                        <button type="button" data-stock-tab="keluar"
-                                                class="px-3 py-2 text-sm font-medium border-b-2 -mb-px border-indigo-600 text-indigo-600">
-                                            Stok Keluar
-                                        </button>
-                                        <button type="button" data-stock-tab="opname"
-                                                class="px-3 py-2 text-sm font-medium border-b-2 -mb-px border-transparent text-gray-500 hover:text-gray-700">
-                                            Stok Opname
-                                        </button>
-                                    </div>
-
-                                    <!-- Panel: Stok Keluar -->
-                                    <div data-stock-panel="keluar">
-                                        <form method="POST" action="{{ route('gudang.stok.keluar', $product) }}">
-                                            @csrf
-                                            <input type="hidden" name="form_id" value="stok-keluar-{{ $product->id }}">
-                                            <p class="text-xs text-gray-500 mb-3">Untuk barang rusak, hilang, atau kadaluarsa.</p>
-
-                                            <x-input-label value="Qty Keluar (satuan dasar: {{ $product->baseUnit->unit_name ?? '-' }})" />
-                                            <x-text-input type="number" step="0.001" min="0.001" max="{{ (float) $product->stock }}"
-                                                          name="quantity" value="{{ old('form_id') === 'stok-keluar-' . $product->id ? old('quantity') : '' }}"
-                                                          class="mt-1 block w-full" required />
-                                            <p class="mt-1 text-xs text-gray-400">Stok saat ini: {{ $product->formatStock((float) $product->stock) }}</p>
-
-                                            <div class="mt-3">
-                                                <x-input-label value="Keterangan (wajib)" />
-                                                <textarea name="note" rows="2" required
-                                                          class="mt-1 block w-full rounded-md border-gray-300 shadow-sm text-sm focus:border-indigo-500 focus:ring-indigo-500"
-                                                          placeholder="Contoh: 2 pcs pecah saat penataan rak">{{ old('form_id') === 'stok-keluar-' . $product->id ? old('note') : '' }}</textarea>
-                                            </div>
-
-                                            <div class="flex justify-end gap-2 mt-6">
-                                                <x-secondary-button type="button" data-modal-close>Batal</x-secondary-button>
-                                                <x-danger-button>Catat Stok Keluar</x-danger-button>
-                                            </div>
-                                        </form>
-                                    </div>
-
-                                    <!-- Panel: Stok Opname -->
-                                    <div data-stock-panel="opname" class="hidden">
-                                        <form method="POST" action="{{ route('gudang.stok.opname', $product) }}">
-                                            @csrf
-                                            <input type="hidden" name="form_id" value="stok-opname-{{ $product->id }}">
-                                            <p class="text-xs text-gray-500 mb-3">Masukkan hasil hitung fisik, sistem otomatis hitung selisihnya.</p>
-
-                                            <x-input-label value="Stok Fisik Hasil Hitung (satuan dasar: {{ $product->baseUnit->unit_name ?? '-' }})" />
-                                            @php $oldPhysical = old('form_id') === 'stok-opname-' . $product->id ? old('physical_stock') : null; @endphp
-                                            <x-text-input type="number" step="0.001" min="0" name="physical_stock"
-                                                          value="{{ $oldPhysical ?? \App\Support\Number::trim((float) $product->stock) }}"
-                                                          class="mt-1 block w-full" required />
-                                            <p class="mt-1 text-xs text-gray-400">Stok menurut sistem: {{ $product->formatStock((float) $product->stock) }}</p>
-
-                                            <div class="mt-3">
-                                                <x-input-label value="Keterangan (opsional)" />
-                                                <textarea name="note" rows="2"
-                                                          class="mt-1 block w-full rounded-md border-gray-300 shadow-sm text-sm focus:border-indigo-500 focus:ring-indigo-500"
-                                                          placeholder="Contoh: opname rutin akhir bulan">{{ old('form_id') === 'stok-opname-' . $product->id ? old('note') : '' }}</textarea>
-                                            </div>
-
-                                            <div class="flex justify-end gap-2 mt-6">
-                                                <x-secondary-button type="button" data-modal-close>Batal</x-secondary-button>
-                                                <x-primary-button>Simpan Hasil Opname</x-primary-button>
-                                            </div>
-                                        </form>
-                                    </div>
-                                </div>
-                            </x-modal.modal>
                         @empty
                             <tr>
                                 <td colspan="5" class="px-6 py-10 text-center text-gray-400">Belum ada produk yang cocok dengan filter ini.</td>
@@ -159,6 +86,127 @@
                     </tbody>
                 </table>
             </div>
+
+            <!-- ====== Mobile: kartu (<768px), menggantikan tabel yang tadinya harus digeser horizontal ====== -->
+            <div class="md:hidden space-y-2.5">
+                @forelse ($products as $product)
+                    <div class="bg-white border border-gray-200 rounded-xl p-3.5">
+                        <div class="flex items-start justify-between gap-3">
+                            <div class="min-w-0">
+                                <div class="font-semibold text-gray-900 text-sm truncate">{{ $product->name }}</div>
+                                <div class="text-xs text-gray-400 truncate">{{ $product->sku }} &middot; {{ $product->category->name }}</div>
+                            </div>
+                            <span @class([
+                                'inline-flex items-center px-2.5 py-1 rounded-full text-[11px] font-semibold whitespace-nowrap flex-none',
+                                'bg-red-100 text-red-700' => $product->isLowStock(),
+                                'bg-emerald-100 text-emerald-700' => ! $product->isLowStock(),
+                            ])>
+                                {{ $product->isLowStock() ? 'Stok Menipis' : 'Stok Aman' }}
+                            </span>
+                        </div>
+                        <div class="flex items-end justify-between gap-2 mt-3 pt-3 border-t border-dashed border-gray-200">
+                            <div class="min-w-0">
+                                <div class="text-base font-bold text-gray-900 leading-tight truncate">
+                                    {{ $product->formatStock((float) $product->stock) }}
+                                </div>
+                                <div class="text-[11px] text-gray-400 mt-0.5">
+                                    Ambang menipis: {{ $product->formatStock((float) $product->min_stock) }}
+                                </div>
+                            </div>
+                            <div class="flex gap-1.5 flex-none">
+                                <a href="{{ route('gudang.stok.show', $product) }}"
+                                   class="text-xs font-medium text-gray-500 px-2.5 py-2 rounded-md hover:bg-gray-100">
+                                    Riwayat
+                                </a>
+                                <button type="button" data-modal-open="stok-sesuaikan-{{ $product->id }}"
+                                        class="text-xs font-semibold text-indigo-700 bg-indigo-50 px-2.5 py-2 rounded-md">
+                                    Sesuaikan
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+                @empty
+                    <div class="bg-white border border-gray-200 rounded-xl py-10 text-center text-gray-400 text-sm">
+                        Belum ada produk yang cocok dengan filter ini.
+                    </div>
+                @endforelse
+            </div>
+
+            <!-- ====== Modal Sesuaikan Stok — 1x per produk, dipakai bareng oleh tombol tabel & kartu di atas ====== -->
+            @foreach ($products as $product)
+                <x-modal.modal name="stok-sesuaikan-{{ $product->id }}">
+                    <div class="p-6">
+                        <h3 class="text-lg font-medium text-gray-900 mb-1">Sesuaikan Stok</h3>
+                        <p class="text-sm text-gray-500 mb-4">{{ $product->name }}</p>
+
+                        <div class="flex gap-1 border-b border-gray-200 mb-4">
+                            <button type="button" data-stock-tab="keluar"
+                                    class="px-3 py-2 text-sm font-medium border-b-2 -mb-px border-indigo-600 text-indigo-600">
+                                Stok Keluar
+                            </button>
+                            <button type="button" data-stock-tab="opname"
+                                    class="px-3 py-2 text-sm font-medium border-b-2 -mb-px border-transparent text-gray-500 hover:text-gray-700">
+                                Stok Opname
+                            </button>
+                        </div>
+
+                        <!-- Panel: Stok Keluar -->
+                        <div data-stock-panel="keluar">
+                            <form method="POST" action="{{ route('gudang.stok.keluar', $product) }}">
+                                @csrf
+                                <input type="hidden" name="form_id" value="stok-keluar-{{ $product->id }}">
+                                <p class="text-xs text-gray-500 mb-3">Untuk barang rusak, hilang, atau kadaluarsa.</p>
+
+                                <x-input-label value="Qty Keluar (satuan dasar: {{ $product->baseUnit->unit_name ?? '-' }})" />
+                                <x-text-input type="number" step="0.001" min="0.001" max="{{ (float) $product->stock }}"
+                                              name="quantity" value="{{ old('form_id') === 'stok-keluar-' . $product->id ? old('quantity') : '' }}"
+                                              class="mt-1 block w-full" required />
+                                <p class="mt-1 text-xs text-gray-400">Stok saat ini: {{ $product->formatStock((float) $product->stock) }}</p>
+
+                                <div class="mt-3">
+                                    <x-input-label value="Keterangan (wajib)" />
+                                    <textarea name="note" rows="2" required
+                                              class="mt-1 block w-full rounded-md border-gray-300 shadow-sm text-sm focus:border-indigo-500 focus:ring-indigo-500"
+                                              placeholder="Contoh: 2 pcs pecah saat penataan rak">{{ old('form_id') === 'stok-keluar-' . $product->id ? old('note') : '' }}</textarea>
+                                </div>
+
+                                <div class="flex justify-end gap-2 mt-6">
+                                    <x-secondary-button type="button" data-modal-close>Batal</x-secondary-button>
+                                    <x-danger-button>Catat Stok Keluar</x-danger-button>
+                                </div>
+                            </form>
+                        </div>
+
+                        <!-- Panel: Stok Opname -->
+                        <div data-stock-panel="opname" class="hidden">
+                            <form method="POST" action="{{ route('gudang.stok.opname', $product) }}">
+                                @csrf
+                                <input type="hidden" name="form_id" value="stok-opname-{{ $product->id }}">
+                                <p class="text-xs text-gray-500 mb-3">Masukkan hasil hitung fisik, sistem otomatis hitung selisihnya.</p>
+
+                                <x-input-label value="Stok Fisik Hasil Hitung (satuan dasar: {{ $product->baseUnit->unit_name ?? '-' }})" />
+                                @php $oldPhysical = old('form_id') === 'stok-opname-' . $product->id ? old('physical_stock') : null; @endphp
+                                <x-text-input type="number" step="0.001" min="0" name="physical_stock"
+                                              value="{{ $oldPhysical ?? \App\Support\Number::trim((float) $product->stock) }}"
+                                              class="mt-1 block w-full" required />
+                                <p class="mt-1 text-xs text-gray-400">Stok menurut sistem: {{ $product->formatStock((float) $product->stock) }}</p>
+
+                                <div class="mt-3">
+                                    <x-input-label value="Keterangan (opsional)" />
+                                    <textarea name="note" rows="2"
+                                              class="mt-1 block w-full rounded-md border-gray-300 shadow-sm text-sm focus:border-indigo-500 focus:ring-indigo-500"
+                                              placeholder="Contoh: opname rutin akhir bulan">{{ old('form_id') === 'stok-opname-' . $product->id ? old('note') : '' }}</textarea>
+                                </div>
+
+                                <div class="flex justify-end gap-2 mt-6">
+                                    <x-secondary-button type="button" data-modal-close>Batal</x-secondary-button>
+                                    <x-primary-button>Simpan Hasil Opname</x-primary-button>
+                                </div>
+                            </form>
+                        </div>
+                    </div>
+                </x-modal.modal>
+            @endforeach
 
             <div class="mt-4">{{ $products->links() }}</div>
         </div>

@@ -187,7 +187,13 @@ class LaporanController extends Controller
         $semuaSesuaiFilter = (clone $filtered)->get();
         $totalNilaiInventori = (int) $semuaSesuaiFilter->sum(fn ($p) => $p->stock * $p->average_cost);
 
-        $lowStockProducts = Product::active()->lowStock()->orderBy('name')->get();
+        // with('units'): formatStock() di view "Stok Menipis" butuh ini —
+        // sama persis polanya dengan DashboardController::stokMenipis() yang
+        // baru kelewat kemarin. Query "produk stok menipis" ad-hoc semacam
+        // ini gampang kelewat karena bukan bagian dari $filtered/produkQuery
+        // utama yang sudah eager-load. Sudah saya pastikan tidak ada lagi
+        // pemakaian lowStock() lain di seluruh controller yang bolong serupa.
+        $lowStockProducts = Product::with('units')->active()->lowStock()->orderBy('name')->get();
 
         [$from, $to] = $this->resolveDateRange($request, now()->subDays(30)->startOfDay(), now()->endOfDay());
 

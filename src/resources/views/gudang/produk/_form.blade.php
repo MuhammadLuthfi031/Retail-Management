@@ -67,105 +67,107 @@
     </div>
 @enderror
 
-<div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
-    <!-- Nama -->
-    <div class="sm:col-span-2">
-        <x-input-label value="Nama Produk" />
-        <x-text-input name="name" value="{{ old('name', $product->name ?? '') }}" class="mt-1 block w-full" required autofocus />
+<div data-form-segments="{{ $formId }}">
+    <!-- Tab switcher — HANYA tampil di mobile (<768px). Di desktop/tablet
+         semua bagian tetap tampil sekaligus seperti sebelumnya (lihat
+         md:contents di tiap panel di bawah), jadi form-segments.js tidak
+         berpengaruh apa-apa di layar besar. -->
+    <div class="md:hidden grid grid-cols-4 gap-1 bg-gray-100 p-1 rounded-lg mb-4">
+        <button type="button" data-segment-tab="info" class="px-2 py-2 rounded-md text-xs font-semibold bg-white text-indigo-600 shadow-sm">Info</button>
+        <button type="button" data-segment-tab="satuan" class="px-2 py-2 rounded-md text-xs font-semibold text-gray-500">Satuan</button>
+        <button type="button" data-segment-tab="stok" class="px-2 py-2 rounded-md text-xs font-semibold text-gray-500">Stok & Harga</button>
+        <button type="button" data-segment-tab="lain" class="px-2 py-2 rounded-md text-xs font-semibold text-gray-500">Lainnya</button>
     </div>
 
-    <!-- Kategori -->
-    <div>
-        <x-input-label value="Kategori" />
-        <select name="category_id" required class="mt-1 block w-full rounded-md border-gray-300 shadow-sm text-sm focus:border-indigo-500 focus:ring-indigo-500">
-            <option value="">-- Pilih Kategori --</option>
-            @foreach ($categories as $cat)
-                <option value="{{ $cat->id }}" @selected(old('category_id', $product->category_id ?? null) == $cat->id)>{{ $cat->name }}</option>
-            @endforeach
-        </select>
-    </div>
-
-    <!-- SKU -->
-    <div>
-        <x-input-label value="SKU (kosongkan untuk auto-generate)" />
-        <x-text-input name="sku" value="{{ old('sku', $product->sku ?? '') }}" class="mt-1 block w-full"
-                       placeholder="{{ $isEdit ? $product->sku : 'Contoh: PRD-0001' }}" />
-    </div>
-
-    <!-- Tipe Tracking -->
-    <div class="sm:col-span-2">
-        <x-input-label value="Cara Jual Produk Ini" />
-        <div class="mt-1 flex gap-4">
-            <label class="flex items-center gap-2 text-sm text-gray-700">
-                <input type="radio" name="tracking_mode" value="unit" data-tracking-mode-radio="{{ $formId }}"
-                       @checked($trackingMode === 'unit') {{ $isEdit ? 'disabled' : '' }}>
-                Satuan Diskrit (pcs, dus, renceng, sachet, dll)
-            </label>
-            <label class="flex items-center gap-2 text-sm text-gray-700">
-                <input type="radio" name="tracking_mode" value="weight" data-tracking-mode-radio="{{ $formId }}"
-                       @checked($trackingMode === 'weight') {{ $isEdit ? 'disabled' : '' }}>
-                Timbang / Curah (kg, gram)
-            </label>
-        </div>
-        @if ($isEdit)
-            <input type="hidden" name="tracking_mode" value="{{ $trackingMode }}">
-            <p class="mt-1 text-xs text-gray-400">Cara jual tidak bisa diubah setelah produk dibuat (untuk menjaga konsistensi riwayat stok).</p>
-        @endif
-    </div>
-
-    <!-- Satuan Produk (dinamis) -->
-    <div class="sm:col-span-2" data-unit-section>
-        <div class="flex items-center justify-between mb-2">
-            <x-input-label value="Satuan Produk" />
-            <button type="button" data-unit-add="{{ $formId }}" class="text-xs font-medium text-indigo-600 hover:text-indigo-800">
-                + Tambah Satuan
-            </button>
+    <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
+        <div data-segment-panel="info" class="md:contents">
+        <!-- Nama -->
+        <div class="sm:col-span-2">
+            <x-input-label value="Nama Produk" />
+            <x-text-input name="name" value="{{ old('name', $product->name ?? '') }}" class="mt-1 block w-full" required autofocus />
         </div>
 
-        <x-barcode-scan-shared :form-id="$formId" />
+        <!-- Kategori -->
+        <div>
+            <x-input-label value="Kategori" />
+            <select name="category_id" required class="mt-1 block w-full rounded-md border-gray-300 shadow-sm text-sm focus:border-indigo-500 focus:ring-indigo-500">
+                <option value="">-- Pilih Kategori --</option>
+                @foreach ($categories as $cat)
+                    <option value="{{ $cat->id }}" @selected(old('category_id', $product->category_id ?? null) == $cat->id)>{{ $cat->name }}</option>
+                @endforeach
+            </select>
+        </div>
 
-        <div class="mb-2 rounded-md bg-indigo-50 border border-indigo-100 px-3 py-2 text-xs text-indigo-700">
-            Susun dari yang <strong>terbesar di atas</strong> ke <strong>terkecil di bawah</strong>. Baris paling bawah
-            otomatis jadi <strong>Satuan Dasar</strong> (dipakai untuk tracking stok) — tidak perlu dipilih manual.
-            Isi kolom "Isi" dengan jumlah satuan di <strong>baris tepat di bawahnya</strong>, bukan langsung ke satuan
-            dasar (contoh: 1 dus = 24 <em>renceng</em>, bukan 24 sachet — sistem yang menghitung totalnya otomatis,
-            lihat pratinjau kecil di bawah tiap kolom "Isi").
+        <!-- SKU -->
+        <div>
+            <x-input-label value="SKU (kosongkan untuk auto-generate)" />
+            <x-text-input name="sku" value="{{ old('sku', $product->sku ?? '') }}" class="mt-1 block w-full"
+                           placeholder="{{ $isEdit ? $product->sku : 'Contoh: PRD-0001' }}" />
+        </div>
+
+        <!-- Tipe Tracking -->
+        <div class="sm:col-span-2">
+            <x-input-label value="Cara Jual Produk Ini" />
+            <div class="mt-1 flex gap-4">
+                <label class="flex items-center gap-2 text-sm text-gray-700">
+                    <input type="radio" name="tracking_mode" value="unit" data-tracking-mode-radio="{{ $formId }}"
+                           @checked($trackingMode === 'unit') {{ $isEdit ? 'disabled' : '' }}>
+                    Satuan Diskrit (pcs, dus, renceng, sachet, dll)
+                </label>
+                <label class="flex items-center gap-2 text-sm text-gray-700">
+                    <input type="radio" name="tracking_mode" value="weight" data-tracking-mode-radio="{{ $formId }}"
+                           @checked($trackingMode === 'weight') {{ $isEdit ? 'disabled' : '' }}>
+                    Timbang / Curah (kg, gram)
+                </label>
+            </div>
             @if ($isEdit)
-                Satuan dasar produk ini sudah terkunci dan tidak bisa dipindah/dihapus lagi.
+                <input type="hidden" name="tracking_mode" value="{{ $trackingMode }}">
+                <p class="mt-1 text-xs text-gray-400">Cara jual tidak bisa diubah setelah produk dibuat (untuk menjaga konsistensi riwayat stok).</p>
             @endif
         </div>
+        </div>
 
-        <div class="border border-gray-200 rounded-lg overflow-x-auto">
-            <table class="min-w-full text-sm">
-                <thead class="bg-gray-50 text-xs text-gray-500 uppercase">
-                    <tr>
-                        <th class="px-3 py-2 text-left">Nama Satuan</th>
-                        <th class="px-3 py-2 text-left">Isi (→ satuan di bawahnya)</th>
-                        <th class="px-3 py-2 text-left">Harga Jual</th>
-                        <th class="px-3 py-2 text-left">Barcode</th>
-                        <th class="px-3 py-2 text-center">Beli?</th>
-                        <th></th>
-                    </tr>
-                </thead>
-                <tbody data-unit-rows="{{ $formId }}" data-counter="{{ $unitRows->count() }}" data-lock-last="{{ $isEdit ? '1' : '0' }}">
-                    @foreach ($unitRows as $index => $unit)
-                        @include('gudang.produk._unit-row', ['unit' => $unit, 'index' => $index, 'formId' => $formId])
-                    @endforeach
-                </tbody>
-            </table>
+        <div data-segment-panel="satuan" class="hidden md:contents">
+        <!-- Satuan Produk (dinamis) -->
+        <div class="sm:col-span-2" data-unit-section>
+            <div class="flex items-center justify-between mb-2">
+                <x-input-label value="Satuan Produk" />
+                <button type="button" data-unit-add="{{ $formId }}" class="text-xs font-medium text-indigo-600 hover:text-indigo-800">
+                    + Tambah Satuan
+                </button>
+            </div>
+
+            <x-barcode-scan-shared :form-id="$formId" />
+
+            <div class="mb-2 rounded-md bg-indigo-50 border border-indigo-100 px-3 py-2 text-xs text-indigo-700">
+                Susun dari yang <strong>terbesar di atas</strong> ke <strong>terkecil di bawah</strong>. Baris paling bawah
+                otomatis jadi <strong>Satuan Dasar</strong> (dipakai untuk tracking stok) — tidak perlu dipilih manual.
+                Isi kolom "Isi" dengan jumlah satuan di <strong>baris tepat di bawahnya</strong>, bukan langsung ke satuan
+                dasar (contoh: 1 dus = 24 <em>renceng</em>, bukan 24 sachet — sistem yang menghitung totalnya otomatis,
+                lihat pratinjau kecil di bawah tiap kolom "Isi"). Kolom "Beli" menandai satuan default saat
+                belanja/restock dari supplier — ini boleh diubah kapan saja.
+                @if ($isEdit)
+                    Satuan dasar produk ini sudah terkunci dan tidak bisa dipindah/dihapus lagi.
+                @endif
+            </div>
+
+            <div data-unit-rows="{{ $formId }}" data-counter="{{ $unitRows->count() }}" data-lock-last="{{ $isEdit ? '1' : '0' }}"
+                 class="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
+                @foreach ($unitRows as $index => $unit)
+                    @include('gudang.produk._unit-row', ['unit' => $unit, 'index' => $index, 'formId' => $formId])
+                @endforeach
+            </div>
             {{-- Selalu di-render (bukan @if), supaya toggleEmptyHint() di JS bisa
                  menampilkan/menyembunyikannya kapan pun — termasuk kalau user
                  menghapus SEMUA baris satuan yang bisa dihapus di mode edit. --}}
-            <p class="px-3 py-3 text-xs text-gray-400 {{ $unitRows->isEmpty() ? '' : 'hidden' }}" data-unit-empty-hint>
+            <p class="rounded-lg border border-dashed border-gray-200 px-3 py-4 text-center text-xs text-gray-400 {{ $unitRows->isEmpty() ? '' : 'hidden' }}" data-unit-empty-hint>
                 Belum ada satuan. Klik "+ Tambah Satuan" untuk menambahkan (contoh: dus, renceng, sachet — atau kg/gram untuk produk curah).
             </p>
         </div>
-        <p class="mt-1 text-xs text-gray-400">
-            Kolom "Beli?" menandai satuan default saat belanja/restock dari supplier — ini boleh diubah kapan saja.
-        </p>
-    </div>
+        </div>
 
-    @if (! $isEdit)
+        <div data-segment-panel="stok" class="hidden md:contents">
+        @if (! $isEdit)
         <!-- Stok Awal (hanya saat create) -->
         <div>
             <x-input-label value="Stok Awal (dalam satuan dasar)" />
@@ -212,7 +214,9 @@
             Boleh dijual dengan kuantitas pecahan bebas (misal 0.35 kg)
         </label>
     </div>
+        </div>
 
+        <div data-segment-panel="lain" class="hidden md:contents">
     <!-- Foto -->
     <div>
         <x-input-label value="Foto Produk (opsional)" />
@@ -243,31 +247,52 @@
         <textarea name="description" rows="2"
                   class="mt-1 block w-full rounded-md border-gray-300 shadow-sm text-sm focus:border-indigo-500 focus:ring-indigo-500">{{ old('description', $product->description ?? '') }}</textarea>
     </div>
+        </div>
+    </div>
 </div>
 
-<!-- Template baris satuan baru (dipakai JS saat klik "+ Tambah Satuan") -->
+<!-- Template baris satuan baru (dipakai JS saat klik "+ Tambah Satuan").
+     Struktur & atribut data-* HARUS sama persis dengan _unit-row.blade.php;
+     unit-rows.js tidak peduli tabel atau kartu, yang penting atributnya. -->
 <template data-unit-row-template="{{ $formId }}">
-    <tr data-unit-row class="border-t border-gray-100" data-locked="0">
-        <td class="px-2 py-1.5">
-            <input type="text" data-field="unit_name" placeholder="contoh: renceng" required class="w-full rounded-md border-gray-300 text-sm">
-        </td>
-        <td class="px-2 py-1.5">
-            <input type="number" step="0.001" min="0.001" data-field="relative_qty" required
-                   class="w-24 rounded-md border-gray-300 text-sm" placeholder="qty">
-            <span class="block text-xs text-gray-400 mt-0.5" data-conversion-hint></span>
-            <span class="hidden inline-flex items-center px-2 py-1 rounded-md bg-indigo-50 text-indigo-700 text-xs font-medium" data-base-label>Satuan Dasar</span>
-        </td>
-        <td class="px-2 py-1.5">
-            <input type="number" min="0" data-field="selling_price" placeholder="opsional" class="w-28 rounded-md border-gray-300 text-sm">
-        </td>
-        <td class="px-2 py-1.5">
-            <input type="text" data-field="barcode" data-barcode-row-target placeholder="opsional" class="w-32 rounded-md border-gray-300 text-sm">
-        </td>
-        <td class="px-2 py-1.5 text-center">
-            <input type="radio" data-field="is_purchase_unit">
-        </td>
-        <td class="px-2 py-1.5 text-right">
-            <button type="button" data-unit-remove class="text-red-500 hover:text-red-700 text-xs">Hapus</button>
-        </td>
-    </tr>
+    <div data-unit-row data-locked="0" class="rounded-lg border border-gray-200 bg-white p-3">
+        <div class="flex items-start justify-between gap-2 mb-2">
+            <input type="text" data-field="unit_name" placeholder="contoh: renceng" required
+                   class="min-w-0 flex-1 rounded-md border-gray-300 text-sm font-semibold focus:border-indigo-500 focus:ring-indigo-500">
+            <button type="button" data-unit-remove
+                    class="flex-none w-7 h-7 rounded-full bg-red-50 text-red-600 text-sm font-bold leading-none hover:bg-red-100">
+                &times;
+            </button>
+        </div>
+
+        <div class="flex flex-wrap items-center gap-x-3 gap-y-1 mb-2">
+            <span class="hidden inline-flex items-center px-2 py-0.5 rounded-md bg-indigo-100 text-indigo-700 text-[11px] font-semibold" data-base-label>
+                Satuan Dasar
+            </span>
+            <label class="inline-flex items-center gap-1.5 text-[11px] font-medium text-gray-500">
+                <input type="radio" data-field="is_purchase_unit" class="text-indigo-600 focus:ring-indigo-500">
+                Beli Default
+            </label>
+        </div>
+
+        <div class="grid grid-cols-2 gap-2 mb-2">
+            <div>
+                <label class="block text-[10.5px] font-medium text-gray-400 mb-0.5">Isi (&rarr; bawahnya)</label>
+                <input type="number" step="0.001" min="0.001" data-field="relative_qty" required
+                       class="w-full rounded-md border-gray-300 text-sm focus:border-indigo-500 focus:ring-indigo-500" placeholder="qty">
+                <span class="block text-[11px] text-gray-400 mt-0.5" data-conversion-hint></span>
+            </div>
+            <div>
+                <label class="block text-[10.5px] font-medium text-gray-400 mb-0.5">Harga Jual</label>
+                <input type="number" min="0" data-field="selling_price" placeholder="opsional"
+                       class="w-full rounded-md border-gray-300 text-sm focus:border-indigo-500 focus:ring-indigo-500">
+            </div>
+        </div>
+
+        <div>
+            <label class="block text-[10.5px] font-medium text-gray-400 mb-0.5">Barcode</label>
+            <input type="text" data-field="barcode" data-barcode-row-target placeholder="opsional"
+                   class="w-full rounded-md border-gray-300 text-sm focus:border-indigo-500 focus:ring-indigo-500">
+        </div>
+    </div>
 </template>

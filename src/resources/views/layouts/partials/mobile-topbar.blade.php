@@ -1,5 +1,5 @@
 <header class="md:hidden sticky top-0 z-30 bg-white border-b border-gray-200 h-14 flex items-center justify-between px-4">
-    <a href="{{ route('dashboard') }}" class="font-bold text-lg text-indigo-600">
+    <a href="{{ route(auth()->user()->homeRouteName()) }}" class="font-bold text-lg text-indigo-600">
         Toko<span class="text-gray-800">App</span>
     </a>
 

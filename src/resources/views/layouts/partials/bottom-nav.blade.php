@@ -1,9 +1,24 @@
 @php
     $isActive = fn ($pattern) => request()->routeIs($pattern) ? 'text-indigo-600' : 'text-gray-500';
+
+    // Jumlah kolom dihitung dari item yang BENERAN dirender di bawah (bukan
+    // ditebak dari role), supaya tidak pernah ada slot kosong ganjil. Kasir:
+    // Beranda+POS+Lainnya=3. Gudang: Beranda+Produk+Stok+Lainnya=4. Admin:
+    // Beranda+POS+Produk+Stok+Lainnya=5. grid-cols-3/4/5 sengaja ditulis
+    // sebagai string literal di sini (bukan digabung dinamis) supaya
+    // ke-scan Tailwind dan classnya benar-benar ikut ter-compile.
+    $navCount = 2; // Beranda + Lainnya selalu ada
+    if (auth()->user()->isAdmin() || auth()->user()->isKasir()) $navCount++;
+    if (auth()->user()->isAdmin() || auth()->user()->isGudang()) $navCount += 2; // Produk & Stok
+    $navGridClass = match ($navCount) {
+        3 => 'grid-cols-3',
+        4 => 'grid-cols-4',
+        default => 'grid-cols-5',
+    };
 @endphp
 
 <nav class="md:hidden fixed bottom-0 inset-x-0 z-30 bg-white border-t border-gray-200 pb-[env(safe-area-inset-bottom)]">
-    <div class="grid h-16 {{ auth()->user()->isAdmin() || auth()->user()->isGudang() ? 'grid-cols-5' : 'grid-cols-4' }}">
+    <div class="grid h-16 {{ $navGridClass }}">
         <a href="{{ route(auth()->user()->homeRouteName()) }}" class="flex flex-col items-center justify-center gap-0.5 {{ $isActive(auth()->user()->homeRouteName()) }}">
             <x-icon name="home" class="w-6 h-6" />
             <span class="text-[11px] font-medium">Beranda</span>
@@ -38,7 +53,8 @@
     </div>
 </nav>
 
-<!-- Sheet: menu tambahan (item yang tidak muat di bottom nav + profil/logout) -->
+<!-- Sheet: menu tambahan, dikelompokkan per bagian (sama seperti pengelompokan
+     di sidebar.blade.php) supaya tidak jadi daftar rata yang panjang -->
 <x-modal.sheet name="mobile-more">
     <div class="flex items-center justify-between px-4 py-3 border-b border-gray-100">
         <h3 class="font-semibold text-gray-900">Menu Lainnya</h3>
@@ -49,6 +65,7 @@
 
     <div class="p-2">
         @if (auth()->user()->isAdmin() || auth()->user()->isKasir())
+            <p class="px-3 pt-3 pb-1 text-xs font-semibold text-gray-400 uppercase tracking-wider">Kasir</p>
             <a href="{{ route('kasir.riwayat') }}" class="flex items-center gap-3 px-4 py-3 rounded-lg text-sm font-medium text-gray-700 hover:bg-gray-50">
                 <x-icon name="archive" />
                 Riwayat Transaksi
@@ -60,17 +77,14 @@
         @endif
 
         @if (auth()->user()->isAdmin() || auth()->user()->isGudang())
+            <p class="px-3 pt-3 pb-1 text-xs font-semibold text-gray-400 uppercase tracking-wider">Gudang</p>
             <a href="{{ route('gudang.kategori.index') }}" class="flex items-center gap-3 px-4 py-3 rounded-lg text-sm font-medium text-gray-700 hover:bg-gray-50">
                 <x-icon name="tag" />
                 Kategori
             </a>
-        @endif
-
-        @if (auth()->user()->isAdmin() || auth()->user()->isGudang())
-            <a href="{{ route('gudang.stok.index') }}" class="flex items-center gap-3 px-4 py-3 rounded-lg text-sm font-medium text-gray-700 hover:bg-gray-50">
-                <x-icon name="archive" />
-                Stok
-            </a>
+            {{-- Link "Stok" sengaja dihapus dari sini -- kondisinya sama persis
+                 dengan tab "Stok" di bottom nav di atas, jadi selalu dobel
+                 untuk role manapun yang bisa melihat menu ini. --}}
             <a href="{{ route('gudang.pembelian.index') }}" class="flex items-center gap-3 px-4 py-3 rounded-lg text-sm font-medium text-gray-700 hover:bg-gray-50">
                 <x-icon name="truck" />
                 Terima Barang
@@ -78,6 +92,7 @@
         @endif
 
         @if (auth()->user()->isAdmin())
+            <p class="px-3 pt-3 pb-1 text-xs font-semibold text-gray-400 uppercase tracking-wider">Admin</p>
             <a href="{{ route('admin.pembelian.index') }}" class="flex items-center gap-3 px-4 py-3 rounded-lg text-sm font-medium text-gray-700 hover:bg-gray-50">
                 <x-icon name="cart" />
                 Purchase Order
@@ -96,7 +111,7 @@
             </a>
         @endif
 
-        <hr class="my-2 border-gray-100">
+        <p class="px-3 pt-3 pb-1 text-xs font-semibold text-gray-400 uppercase tracking-wider">Akun</p>
 
         <button type="button" data-fullscreen-toggle
                 class="w-full flex items-center gap-3 px-4 py-3 rounded-lg text-sm font-medium text-gray-700 hover:bg-gray-50">

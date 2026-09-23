@@ -69,7 +69,7 @@
                 @endif
             </form>
 
-            <div class="bg-white shadow-sm sm:rounded-lg overflow-hidden overflow-x-auto">
+            <div class="hidden md:block bg-white shadow-sm sm:rounded-lg overflow-hidden overflow-x-auto">
                 <table class="min-w-full divide-y divide-gray-200 text-sm">
                     <thead class="bg-gray-50">
                         <tr>
@@ -110,6 +110,31 @@
                         @endforelse
                     </tbody>
                 </table>
+            </div>
+
+            <!-- Kartu — mobile (<768px), menggantikan tabel yang tadinya harus digeser horizontal -->
+            <div class="md:hidden space-y-2.5">
+                @forelse ($purchaseOrders as $po)
+                    <a href="{{ route('admin.pembelian.show', $po) }}" class="block bg-white border border-gray-200 rounded-xl p-3.5">
+                        <div class="flex items-center justify-between gap-2">
+                            <span class="text-sm font-semibold text-gray-900">{{ $po->po_number }}</span>
+                            <span class="text-sm font-bold text-gray-900 whitespace-nowrap">Rp {{ number_format($po->total_amount, 0, ',', '.') }}</span>
+                        </div>
+                        <div class="text-xs text-gray-500 mt-1">{{ $po->supplier->name ?? '—' }} &middot; {{ $po->order_date->format('d M Y') }}</div>
+                        <div class="flex items-center gap-1.5 mt-2.5">
+                            <span class="inline-flex px-2 py-0.5 rounded-full text-[11px] font-medium {{ $statusColor[$po->status] }}">
+                                {{ $statusLabel[$po->status] }}
+                            </span>
+                            <span class="inline-flex px-2 py-0.5 rounded-full text-[11px] font-medium {{ $paymentColor[$po->payment_status] }}">
+                                {{ $paymentLabel[$po->payment_status] }}
+                            </span>
+                        </div>
+                    </a>
+                @empty
+                    <div class="bg-white border border-gray-200 rounded-xl py-10 text-center text-gray-400 text-sm">
+                        Belum ada PO yang cocok dengan filter ini.
+                    </div>
+                @endforelse
             </div>
 
             <div class="mt-4">{{ $purchaseOrders->links() }}</div>

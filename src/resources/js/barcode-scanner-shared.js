@@ -46,6 +46,20 @@ document.addEventListener('DOMContentLoaded', function () {
 
     function startScanner(formId) {
         stopScanner();
+
+        // Cek dukungan getUserMedia LEBIH DULU sebelum panggil library sama
+        // sekali. Kalau halaman ini diakses lewat origin yang browser anggap
+        // tidak "secure context" (mis. HTTP biasa, bukan HTTPS — walau di
+        // proyek ini nginx sudah paksa redirect ke HTTPS, jaga-jaga kalau
+        // suatu saat diakses lewat cara lain), navigator.mediaDevices bisa
+        // undefined dan baru ketahuan gagalnya di dalam library. Dicek di sini
+        // dulu supaya pesannya jelas & langsung, bukan pesan generik.
+        if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+            alert('Browser ini tidak bisa mengakses kamera dari halaman web (butuh HTTPS/koneksi yang dipercaya browser). Gunakan opsi upload foto sebagai gantinya.');
+            closeModal(formId);
+            return;
+        }
+
         const regionId = formId + '-shared-camera-region';
         const scanner = new Html5Qrcode(regionId);
         activeScanner = scanner;
@@ -59,9 +73,26 @@ document.addEventListener('DOMContentLoaded', function () {
                 closeModal(formId);
             },
             function onScanFailure() {}
-        ).catch(function (err) {
+        ).then(function () {
+            // PENTING (bug iOS Safari): html5-qrcode membuat elemen <video>
+            // sendiri secara dinamis dan cuma mengisi `muted`, TANPA atribut
+            // `playsinline`. Di iOS Safari, video tanpa playsinline dicoba
+            // diputar native full-screen — kalau itu diblokir kebijakan
+            // autoplay browser, preview kamera jadi diam/kosong TANPA ada
+            // error apapun yang bisa ditangkap .catch() di bawah (gejalanya:
+            // modal kamera terbuka tapi tidak merespon apa-apa, padahal dari
+            // sisi kode tidak ada yang gagal). Set manual di sini, tepat
+            // setelah elemen video-nya dibuat library & stream berhasil didapat.
+            const videoEl = document.querySelector('#' + regionId + ' video');
+            if (videoEl) {
+                videoEl.setAttribute('playsinline', 'true');
+                videoEl.setAttribute('webkit-playsinline', 'true');
+                videoEl.muted = true;
+            }
+        }).catch(function (err) {
             console.error('Gagal mengakses kamera:', err);
-            alert('Tidak bisa mengakses kamera. Pastikan izin kamera sudah diberikan, atau gunakan opsi upload foto.');
+            const detail = (err && err.message) ? err.message : String(err);
+            alert('Tidak bisa mengakses kamera (' + detail + '). Pastikan izin kamera sudah diberikan ke browser ini di pengaturan HP/OS, halaman diakses lewat HTTPS, dan tidak ada aplikasi lain yang sedang memakai kamera. Kalau masih gagal, gunakan opsi upload foto.');
             closeModal(formId);
         });
     }

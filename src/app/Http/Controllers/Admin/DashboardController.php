@@ -137,6 +137,10 @@ class DashboardController extends Controller
     /** Maks 10 ditampilkan; hitung total lewat kpi.stok_menipis_count kalau lebih dari itu. */
     private function stokMenipis(): Collection
     {
-        return Product::active()->lowStock()->orderBy('name')->limit(10)->get();
+        // with('units'): formatStock() di view dashboard butuh ini (ambil
+        // satuan dasar dari collection units yang sudah ter-load) — kelewat
+        // saat preventLazyLoading() diaktifkan, baru ketahuan dari error di
+        // production. Pola sama seperti StockController::index().
+        return Product::with('units')->active()->lowStock()->orderBy('name')->limit(10)->get();
     }
 }
