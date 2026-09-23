@@ -50,7 +50,8 @@
                 </form>
             </div>
 
-            <div class="bg-white shadow-sm sm:rounded-lg overflow-hidden overflow-x-auto">
+            <!-- Tabel — desktop/tablet (≥768px), tidak berubah -->
+            <div class="hidden md:block bg-white shadow-sm sm:rounded-lg overflow-hidden overflow-x-auto">
                 <table class="min-w-full divide-y divide-gray-200 text-sm">
                     <thead class="bg-gray-50">
                         <tr>
@@ -95,6 +96,47 @@
                         @endforelse
                     </tbody>
                 </table>
+            </div>
+
+            <!-- Kartu — mobile (<768px), data sama persis dengan tabel di atas -->
+            <div class="md:hidden space-y-2.5">
+                @forelse ($movements as $m)
+                    @php $increased = $m->stock_after > $m->stock_before; @endphp
+                    <div class="bg-white border border-gray-200 rounded-lg p-3">
+                        <div class="flex items-center justify-between gap-2">
+                            <span class="inline-flex px-2.5 py-0.5 rounded-full text-xs font-medium {{ $typeColor[$m->type] }}">
+                                {{ $typeLabel[$m->type] }}
+                            </span>
+                            <span class="text-xs text-gray-400 whitespace-nowrap">{{ $m->created_at->format('d M Y H:i') }}</span>
+                        </div>
+
+                        <div class="mt-2 flex items-end justify-between gap-2">
+                            <div class="text-xs text-gray-500">
+                                {{ $product->formatStock((float) $m->stock_before) }}
+                                &rarr;
+                                {{ $product->formatStock((float) $m->stock_after) }}
+                            </div>
+                            <div class="font-semibold {{ $increased ? 'text-emerald-600' : 'text-red-600' }}">
+                                {{ $increased ? '+' : '-' }}{{ $product->formatStock((float) $m->quantity) }}
+                            </div>
+                        </div>
+
+                        @if ($m->note || $m->reference)
+                            <div class="mt-2 pt-2 border-t border-dashed border-gray-200 text-xs text-gray-500">
+                                {{ $m->note }}
+                                @if ($m->reference)
+                                    <div class="text-gray-400">Ref: {{ $m->reference }}</div>
+                                @endif
+                            </div>
+                        @endif
+
+                        <div class="mt-1.5 text-[11px] text-gray-400">Oleh {{ $m->user->name ?? '—' }}</div>
+                    </div>
+                @empty
+                    <div class="bg-white border border-gray-200 rounded-lg p-6 text-center text-gray-400 text-sm">
+                        Belum ada riwayat pergerakan stok untuk produk ini.
+                    </div>
+                @endforelse
             </div>
 
             <div>{{ $movements->links() }}</div>

@@ -38,7 +38,8 @@
             <form method="POST" action="{{ route('gudang.pembelian.store', $po) }}" enctype="multipart/form-data">
                 @csrf
 
-                <div class="bg-white shadow-sm sm:rounded-lg overflow-hidden overflow-x-auto">
+                <!-- Tabel — desktop/tablet (≥768px), tidak berubah -->
+                <div class="hidden md:block bg-white shadow-sm sm:rounded-lg overflow-hidden overflow-x-auto">
                     <table class="min-w-full divide-y divide-gray-200 text-sm">
                         <thead class="bg-gray-50">
                             <tr>
@@ -76,6 +77,46 @@
                             @endforeach
                         </tbody>
                     </table>
+                </div>
+
+                <!-- Kartu — mobile (<768px): input qty SAMA persis (name, id, max, old())
+                     supaya submit form tetap jalan identik dengan versi tabel di atas. -->
+                <div class="md:hidden space-y-2.5">
+                    @foreach ($po->items as $item)
+                        @php $remaining = $item->remainingQuantity(); @endphp
+                        <div class="bg-white border border-gray-200 rounded-lg p-3">
+                            <div class="flex items-center justify-between gap-2">
+                                <div class="font-medium text-gray-900 truncate">{{ $item->product->name }}</div>
+                                <span class="flex-none text-[10.5px] px-2 py-0.5 rounded-full bg-gray-100 text-gray-600 font-medium">{{ $item->productUnit->unit_name }}</span>
+                            </div>
+                            <div class="mt-2.5 pt-2.5 border-t border-dashed border-gray-200 grid grid-cols-3 gap-2 text-xs text-center">
+                                <div>
+                                    <div class="text-gray-400">Dipesan</div>
+                                    <div class="text-gray-700 font-medium mt-0.5">{{ \App\Support\Number::trim((float) $item->quantity_ordered) }}</div>
+                                </div>
+                                <div>
+                                    <div class="text-gray-400">Diterima</div>
+                                    <div class="text-gray-700 font-medium mt-0.5">{{ \App\Support\Number::trim((float) $item->quantity_received) }}</div>
+                                </div>
+                                <div>
+                                    <div class="text-gray-400">Sisa</div>
+                                    <div class="text-gray-700 font-medium mt-0.5">{{ \App\Support\Number::trim($remaining) }}</div>
+                                </div>
+                            </div>
+                            @if ($canReceive)
+                                <div class="mt-2.5 pt-2.5 border-t border-dashed border-gray-200">
+                                    @if ($remaining > 0)
+                                        <label class="block text-xs font-medium text-gray-500 mb-1">Terima Sekarang</label>
+                                        <input type="number" step="0.001" min="0" max="{{ $remaining }}"
+                                               name="received[{{ $item->id }}]" value="{{ old('received.' . $item->id, '') }}"
+                                               placeholder="0" class="w-full rounded-md border-gray-300 shadow-sm text-sm focus:border-indigo-500 focus:ring-indigo-500">
+                                    @else
+                                        <span class="text-xs text-emerald-600 font-medium">✓ Lengkap</span>
+                                    @endif
+                                </div>
+                            @endif
+                        </div>
+                    @endforeach
                 </div>
 
                 @if ($canReceive)

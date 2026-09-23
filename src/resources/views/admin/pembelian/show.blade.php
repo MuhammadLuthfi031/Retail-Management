@@ -151,7 +151,8 @@
             @endif
 
             <!-- Items -->
-            <div class="bg-white shadow-sm sm:rounded-lg overflow-hidden overflow-x-auto">
+            <!-- Items — desktop/tablet (≥768px), tidak berubah -->
+            <div class="hidden md:block bg-white shadow-sm sm:rounded-lg overflow-hidden overflow-x-auto">
                 <table class="min-w-full divide-y divide-gray-200 text-sm">
                     <thead class="bg-gray-50">
                         <tr>
@@ -191,6 +192,46 @@
                         </tr>
                     </tfoot>
                 </table>
+            </div>
+
+            <!-- Items — mobile (<768px), data sama persis dengan tabel di atas -->
+            <div class="md:hidden space-y-2.5">
+                @foreach ($po->items as $item)
+                    <div class="bg-white border border-gray-200 rounded-lg p-3">
+                        <div class="flex items-center justify-between gap-2">
+                            <div class="font-medium text-gray-900 truncate">{{ $item->product->name }}</div>
+                            <span class="flex-none text-[10.5px] px-2 py-0.5 rounded-full bg-gray-100 text-gray-600 font-medium">{{ $item->productUnit->unit_name }}</span>
+                        </div>
+                        <div class="mt-2.5 pt-2.5 border-t border-dashed border-gray-200 grid grid-cols-2 gap-y-1.5 gap-x-3 text-xs">
+                            <div class="flex justify-between text-gray-500">
+                                <span>Dipesan</span>
+                                <span class="text-gray-700 font-medium">{{ \App\Support\Number::trim((float) $item->quantity_ordered) }}</span>
+                            </div>
+                            <div class="flex justify-between text-gray-500">
+                                <span>Diterima</span>
+                                <span @class([
+                                    'font-medium',
+                                    'text-emerald-600' => $item->isFullyReceived(),
+                                    'text-amber-600' => $item->quantity_received > 0 && ! $item->isFullyReceived(),
+                                    'text-gray-400' => $item->quantity_received == 0,
+                                ])>{{ \App\Support\Number::trim((float) $item->quantity_received) }}</span>
+                            </div>
+                            <div class="flex justify-between text-gray-500">
+                                <span>Harga</span>
+                                <span class="text-gray-700 font-medium">Rp {{ number_format($item->unit_price, 0, ',', '.') }}</span>
+                            </div>
+                            <div class="flex justify-between text-gray-500">
+                                <span>Subtotal</span>
+                                <span class="text-gray-900 font-semibold">Rp {{ number_format($item->subtotal, 0, ',', '.') }}</span>
+                            </div>
+                        </div>
+                    </div>
+                @endforeach
+
+                <div class="bg-gray-50 border border-gray-200 rounded-lg p-3 flex items-center justify-between">
+                    <span class="text-xs font-medium text-gray-500 uppercase">Total</span>
+                    <span class="font-semibold text-gray-900">Rp {{ number_format($po->total_amount, 0, ',', '.') }}</span>
+                </div>
             </div>
         </div>
     </div>
