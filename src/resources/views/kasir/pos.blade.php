@@ -12,9 +12,9 @@
     <div id="kasir-pos-root"
          class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-6"
          data-search-url="{{ route('kasir.pos.cari') }}"
+         data-catalog-url="{{ route('kasir.pos.katalog') }}"
          data-barcode-url="{{ url('/kasir/pos/barcode') }}"
          data-checkout-url="{{ route('kasir.pos.checkout') }}"
-         data-struk-url-base="{{ url('/kasir/riwayat') }}"
          data-struk-url-base="{{ url('/kasir/riwayat') }}">
 
         <div class="grid grid-cols-1 lg:grid-cols-5 gap-6">
@@ -49,13 +49,23 @@
                         </label>
                     </div>
 
-                    <p class="mt-2 text-xs text-gray-400 flex items-center gap-1.5">
-                        <x-icon name="barcode" class="w-3.5 h-3.5 shrink-0" />
-                        Scanner USB otomatis aktif kapan saja — tidak perlu klik kolom dulu, langsung tembak.
-                    </p>
+                    <div class="mt-2 flex flex-wrap items-center justify-between gap-x-4 gap-y-1">
+                        <p class="text-xs text-gray-400 flex items-center gap-1.5">
+                            <x-icon name="barcode" class="w-3.5 h-3.5 shrink-0" />
+                            Scanner USB otomatis aktif kapan saja — tidak perlu klik kolom dulu, langsung tembak.
+                        </p>
+                        <p class="text-xs text-gray-400 flex items-center gap-2">
+                            <span id="pos-catalog-updated"></span>
+                            <button type="button" id="pos-catalog-refresh-btn"
+                                    class="hidden font-medium text-indigo-600 hover:text-indigo-800">Muat ulang produk</button>
+                        </p>
+                    </div>
 
                     <p id="pos-inline-message" class="mt-2 text-xs font-medium hidden"></p>
                 </div>
+
+                {{-- Filter kategori: diisi & ditampilkan oleh kasir-pos.js setelah katalog termuat --}}
+                <div id="pos-category-chips" class="hidden"></div>
 
                 <div id="pos-search-results" class="space-y-2">
                     <div id="pos-empty-state" class="bg-white rounded-lg shadow-sm p-10 text-center text-sm text-gray-400">

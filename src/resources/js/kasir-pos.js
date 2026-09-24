@@ -14,6 +14,7 @@ document.addEventListener('DOMContentLoaded', function () {
     if (!root) return; // halaman lain, tidak relevan
 
     const searchUrl = root.dataset.searchUrl;
+    const catalogUrl = root.dataset.catalogUrl;
     const barcodeUrlBase = root.dataset.barcodeUrl;
     const checkoutUrl = root.dataset.checkoutUrl;
     const strukUrlBase = root.dataset.strukUrlBase;
@@ -23,6 +24,10 @@ document.addEventListener('DOMContentLoaded', function () {
     const resultsContainer = document.getElementById('pos-search-results');
     const emptyState = document.getElementById('pos-empty-state');
     const inlineMessage = document.getElementById('pos-inline-message');
+    const chipsEl = document.getElementById('pos-category-chips');
+    const catalogRefreshBtn = document.getElementById('pos-catalog-refresh-btn');
+    const catalogUpdatedEl = document.getElementById('pos-catalog-updated');
+    const emptyStateText = emptyState.textContent.trim();
 
     /** @type {Array<{lineId:string, productId:number, productName:string, unitId:number, unitName:string, price:number, qty:number, fractional:boolean}>} */
     let cart = [];
@@ -181,11 +186,19 @@ document.addEventListener('DOMContentLoaded', function () {
             ? `<p class="mt-1 text-xs text-red-600 font-medium">⚠ Stok tidak cukup — butuh ${formatQty(stockInfo.totalBase)}, tersedia ${formatQty(stockInfo.stock)} ${escapeHtml(stockInfo.baseUnitName)}</p>`
             : '';
 
+        // Diisi applyPriceMismatches() saat checkout ditolak server karena harga
+        // baris ini sudah berubah (lihat submitCheckout) — dibersihkan lagi begitu
+        // kasir mencoba checkout berikutnya, supaya tidak menggantung selamanya.
+        const priceChangedHtml = line.priceChangeNotice
+            ? `<p class="mt-1 text-xs text-amber-600 font-medium">⚠ Harga berubah: ${escapeHtml(line.priceChangeNotice)}</p>`
+            : '';
+
         return `
             <div class="flex items-start gap-3 px-4 py-3 ${exceeds ? 'bg-red-50' : ''}" data-cart-row="${line.lineId}">
                 <div class="flex-1 min-w-0">
                     <p class="text-sm font-medium text-gray-900 truncate">${escapeHtml(line.productName)}</p>
                     <p class="text-xs text-gray-400">${escapeHtml(line.unitName)} &middot; ${formatRupiah(line.price)}</p>
+                    ${priceChangedHtml}
                     <div class="mt-2 flex items-center gap-1.5">
                         <button type="button" data-cart-dec="${line.lineId}"
                                 style="width:1.75rem;height:1.75rem;" class="w-7 h-7 flex items-center justify-center rounded-md border border-gray-300 text-gray-500 hover:bg-gray-50 text-base leading-none">&minus;</button>
@@ -450,6 +463,8 @@ document.addEventListener('DOMContentLoaded', function () {
         submitBtn.disabled = true;
         submitBtn.textContent = 'Memproses...';
         errorEl.classList.add('hidden');
+        cart.forEach((l) => { l.priceChangeNotice = null; }); // notice percobaan sebelumnya sudah tidak relevan
+        renderCart(); // supaya notice lama langsung hilang dari panel keranjang, tidak menunggu render berikutnya
 
         const payload = {
             payment_method: paymentMethod,
@@ -460,6 +475,11 @@ document.addEventListener('DOMContentLoaded', function () {
                 qty: l.qty,
                 discount_type: l.discountType,
                 discount_value: l.discountValue,
+                // Harga yang tampil di keranjang saat ini — server membandingkan ini
+                // dengan harga_jual satuan yang sebenarnya untuk mendeteksi kalau
+                // Admin/Gudang mengubah harga SETELAH katalog dimuat ke layar kasir
+                // ini (lihat PriceMismatchException & applyPriceMismatches di bawah).
+                expected_price: l.price,
             })),
         };
 
@@ -478,6 +498,26 @@ document.addEventListener('DOMContentLoaded', function () {
 
             if (res.ok && body?.data) {
                 showTransactionSuccess(body.data);
+            } else if (res.status === 409 && Array.isArray(body?.mismatches)) {
+                applyPriceMismatches(body.mismatches);
+
+                // Modal ini SEDANG TERBUKA dengan total lama — render ulang isinya
+                // (renderPaymentContent men-generate ulang HTML termasuk memanggil
+                // updateCashSummary, jadi status "Kurang"/tombol nonaktif utk tunai
+                // otomatis benar kalau total baru ternyata lebih besar dari uang
+                // yang sudah diketik kasir) SEBELUM menampilkan pesan errornya —
+                // renderPaymentContent mengganti innerHTML modal, jadi elemen error
+                // lama (errorEl) sudah tidak ada di DOM, harus diambil ulang.
+                const freshTotals = computeCartTotals();
+                const preservedPaidAmount = paymentMethod === 'cash' ? paidAmount : freshTotals.grandTotal;
+                renderPaymentContent(freshTotals, paymentMethod, preservedPaidAmount);
+
+                const summary = body.mismatches
+                    .map((m) => `${m.product_name} (${m.unit_name}): ${formatRupiah(m.expected_price)} → ${formatRupiah(m.current_price)}`)
+                    .join('; ');
+                const freshErrorEl = document.getElementById('pos-payment-error');
+                freshErrorEl.textContent = `Harga berubah — ${summary}. Total sudah diperbarui, periksa lalu proses ulang.`;
+                freshErrorEl.classList.remove('hidden');
             } else {
                 const message = body?.errors
                     ? Object.values(body.errors).flat().join(' ')
@@ -496,7 +536,36 @@ document.addEventListener('DOMContentLoaded', function () {
         }
     }
 
+    /**
+     * Server menolak checkout (409) karena harga satu/lebih baris sudah
+     * berubah di database sejak ditambahkan ke keranjang (lihat komentar
+     * expected_price di submitCheckout). Perbarui harga di keranjang DAN di
+     * katalog lokal ke angka yang benar, supaya render ulang & percobaan
+     * checkout berikutnya sudah memakai harga yang sudah disegarkan.
+     */
+    function applyPriceMismatches(mismatches) {
+        mismatches.forEach((m) => {
+            cart.forEach((line) => {
+                if (line.productId === m.product_id && line.unitId === m.unit_id) {
+                    line.priceChangeNotice = `${formatRupiah(line.price)} → ${formatRupiah(m.current_price)}`;
+                    line.price = m.current_price;
+                }
+            });
+
+            if (catalog !== null) {
+                const product = catalog.find((p) => p.id === m.product_id);
+                const unit = product?.units.find((u) => u.id === m.unit_id);
+                if (unit) unit.selling_price = m.current_price;
+            }
+        });
+
+        renderCart();
+        if (catalog !== null) renderView(); // supaya kartu produk yang lagi tampil ikut menunjukkan harga baru
+    }
+
     function showTransactionSuccess(data) {
+        loadCatalog(); // stok berubah karena penjualan ini -> segarkan data produk di latar belakang
+
         const content = document.getElementById('pos-payment-content');
         content.innerHTML = `
             <div class="text-center py-2">
@@ -527,6 +596,8 @@ document.addEventListener('DOMContentLoaded', function () {
             document.getElementById('pos-mobile-cart-overlay')?.classList.add('hidden');
             document.body.classList.remove('overflow-hidden');
             searchInput.value = '';
+            browseLimit = BROWSE_PAGE_SIZE;
+            if (catalog !== null) renderView();
             searchInput.focus();
         });
     }
@@ -672,12 +743,13 @@ document.addEventListener('DOMContentLoaded', function () {
 
     function productCardHtml(product) {
         const units = product.units;
+        const soldOut = Number(product.stock) <= 0;
         const priceLabel = units.length === 1
             ? formatRupiah(units[0].selling_price)
             : 'Mulai ' + formatRupiah(Math.min(...units.map((u) => u.selling_price)));
 
         const thumb = product.image_url
-            ? `<img src="${product.image_url}" style="width:2.5rem;height:2.5rem;object-fit:cover;" class="w-10 h-10 rounded-md object-cover shrink-0" alt="">`
+            ? `<img src="${product.image_url}" loading="lazy" decoding="async" style="width:2.5rem;height:2.5rem;object-fit:cover;" class="w-10 h-10 rounded-md object-cover shrink-0" alt="">`
             : `<div style="width:2.5rem;height:2.5rem;" class="w-10 h-10 rounded-md bg-gray-100 flex items-center justify-center shrink-0 text-gray-300">
                    <svg xmlns="http://www.w3.org/2000/svg" style="width:1.25rem;height:1.25rem;" class="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor">
                        <path stroke-linecap="round" stroke-linejoin="round" d="M21 7.5l-9-5.25L3 7.5m18 0l-9 5.25m9-5.25v9l-9 5.25M3 7.5l9 5.25M3 7.5v9l9 5.25m0-9v9" />
@@ -686,32 +758,42 @@ document.addEventListener('DOMContentLoaded', function () {
 
         return `
             <button type="button" data-product-card="${product.id}"
-                    class="w-full flex items-center gap-3 bg-white rounded-lg shadow-sm p-3 text-left hover:ring-2 hover:ring-indigo-200">
+                    class="w-full flex items-center gap-3 bg-white rounded-lg shadow-sm p-3 text-left hover:ring-2 hover:ring-indigo-200 ${soldOut ? 'opacity-60' : ''}">
                 ${thumb}
                 <div class="flex-1 min-w-0">
                     <p class="text-sm font-medium text-gray-900 truncate">${escapeHtml(product.name)}</p>
-                    <p class="text-xs text-gray-400">${escapeHtml(product.sku)} &middot; Stok: ${formatQty(product.stock)} ${escapeHtml(baseUnitLabel(product))}</p>
+                    <p class="text-xs text-gray-400">${escapeHtml(product.sku)} &middot; ${soldOut ? '<span class="text-red-500 font-medium">Stok habis</span>' : `Stok: ${formatQty(product.stock)} ${escapeHtml(baseUnitLabel(product))}`}</p>
                 </div>
                 <div class="text-sm font-semibold text-indigo-600 shrink-0">${priceLabel}</div>
             </button>`;
     }
 
-    function renderSearchResults(products) {
+    /**
+     * Render daftar kartu produk — dipakai 3 jalur: hasil pencarian server
+     * (fallback), hasil pencarian lokal, dan daftar browse per kategori.
+     * header/footer adalah HTML yang sudah aman (dibuat di sini, bukan dari user).
+     */
+    function renderSearchResults(products, { header = '', footer = '', emptyText = 'Produk tidak ditemukan.' } = {}) {
         if (products.length === 0) {
-            resultsContainer.innerHTML = `
+            resultsContainer.innerHTML = `${header}
                 <div class="bg-white rounded-lg shadow-sm p-10 text-center text-sm text-gray-400">
-                    Produk tidak ditemukan.
+                    ${escapeHtml(emptyText)}
                 </div>`;
             return;
         }
 
-        resultsContainer.innerHTML = products.map(productCardHtml).join('');
+        resultsContainer.innerHTML = header + products.map(productCardHtml).join('') + footer;
 
         resultsContainer.querySelectorAll('[data-product-card]').forEach((card) => {
             card.addEventListener('click', function () {
                 const product = products.find((p) => p.id === parseInt(card.getAttribute('data-product-card'), 10));
                 if (product) resolveAndAdd(product);
             });
+        });
+
+        resultsContainer.querySelector('[data-browse-more]')?.addEventListener('click', function () {
+            browseLimit += BROWSE_PAGE_SIZE;
+            renderView();
         });
     }
 
@@ -722,7 +804,10 @@ document.addEventListener('DOMContentLoaded', function () {
         document.getElementById('pos-search-spinner')?.classList.toggle('hidden', !isLoading);
     }
 
+    // Pencarian SERVER — hanya dipakai kalau katalog tidak tersedia (belum
+    // selesai dimuat, gagal dimuat, atau terlalu besar). Lihat bagian katalog di bawah.
     const doSearch = debounce(async function (q) {
+        if (catalog !== null) return; // katalog sudah siap di tengah jalan -> pencarian lokal yang berlaku
         if (q.trim().length < 2) {
             searchToken++; // batalkan/abaikan request lama yang mungkin masih berjalan
             setSearchLoading(false);
@@ -757,7 +842,223 @@ document.addEventListener('DOMContentLoaded', function () {
     }, 300);
 
     searchInput.addEventListener('input', function () {
-        doSearch(searchInput.value);
+        if (catalog !== null) {
+            renderView(); // pencarian lokal: instan, tanpa request
+        } else {
+            doSearch(searchInput.value);
+        }
+    });
+
+    // ===================== Katalog produk (preload) & pencarian lokal =====================
+    // Semua produk aktif yang boleh dijual dimuat SEKALI saat halaman POS dibuka,
+    // lalu pencarian & filter kategori jalan di browser (tanpa request per ketikan).
+    //
+    // Data ini SNAPSHOT: stok/harga di server bisa berubah setelahnya. Aman untuk
+    // uang karena checkout menghitung ulang semuanya di server. Supaya kasir tahu
+    // seberapa segar datanya: ada label jam muat + tombol "Muat ulang produk";
+    // katalog juga dimuat ulang otomatis setelah tiap transaksi berhasil dan saat
+    // tab kembali aktif setelah > 5 menit.
+    //
+    // Kalau katalog gagal dimuat atau terlalu besar (too_large dari server),
+    // otomatis kembali ke pencarian server (doSearch) seperti sebelumnya.
+
+    const BROWSE_PAGE_SIZE = 30;
+    const MAX_SEARCH_RESULTS = 20;
+    const CATALOG_STALE_MS = 5 * 60 * 1000;
+
+    /** @type {Array|null} null = katalog belum tersedia -> pakai pencarian server */
+    let catalog = null;
+    let catalogIndex = [];
+    let catalogCategories = [];
+    let catalogLoading = false;
+    let catalogDisabled = false; // server bilang terlalu besar -> jangan coba lagi
+    let catalogLoadedAt = 0;
+    let activeCategoryId = null; // null = semua kategori
+    let browseLimit = BROWSE_PAGE_SIZE;
+
+    function setCatalog(products, categories) {
+        catalog = products;
+        catalogCategories = categories;
+        catalogIndex = products.map((p) => ({
+            product: p,
+            name: String(p.name).toLowerCase(),
+            sku: String(p.sku || '').toLowerCase(),
+            haystack: (p.name + ' ' + (p.sku || '')).toLowerCase(),
+        }));
+    }
+
+    /**
+     * Cari di katalog lokal: semua kata yang diketik harus ada di nama/SKU
+     * (urutan bebas, "goreng indomie" cocok dengan "Indomie Goreng"). Hasil
+     * yang diawali/sama persis dengan kata kunci diurutkan lebih dulu.
+     */
+    function localSearch(query) {
+        const q = query.trim().toLowerCase();
+        const tokens = q.split(/\s+/).filter(Boolean);
+        const matches = [];
+
+        for (const entry of catalogIndex) {
+            if (!tokens.every((t) => entry.haystack.includes(t))) continue;
+            const score = entry.sku === q || entry.name.startsWith(q) ? 0 : (entry.name.includes(q) ? 1 : 2);
+            matches.push({ product: entry.product, score });
+        }
+
+        // Array.sort stabil: di dalam skor yang sama, urutan nama dari server tetap terjaga.
+        matches.sort((a, b) => a.score - b.score);
+
+        return {
+            total: matches.length,
+            products: matches.slice(0, MAX_SEARCH_RESULTS).map((m) => m.product),
+        };
+    }
+
+    function renderCategoryChips() {
+        if (!chipsEl) return;
+
+        if (catalog === null || catalogCategories.length === 0) {
+            chipsEl.classList.add('hidden');
+            return;
+        }
+
+        const counts = {};
+        catalog.forEach((p) => { counts[p.category_id] = (counts[p.category_id] || 0) + 1; });
+
+        const chip = (id, label, count) => {
+            const active = activeCategoryId === id;
+            return `<button type="button" data-category-chip="${id === null ? '' : id}"
+                        class="shrink-0 whitespace-nowrap px-3 py-1.5 rounded-full text-sm border ${active ? 'bg-indigo-600 border-indigo-600 text-white' : 'bg-white border-gray-300 text-gray-600 hover:border-indigo-400'}">
+                        ${escapeHtml(label)} <span class="text-xs ${active ? 'text-indigo-100' : 'text-gray-400'}">${count}</span>
+                    </button>`;
+        };
+
+        chipsEl.innerHTML = `<div class="flex gap-2 overflow-x-auto sm:flex-wrap sm:overflow-visible pb-1">`
+            + chip(null, 'Semua', catalog.length)
+            + catalogCategories.map((c) => chip(c.id, c.name, counts[c.id] || 0)).join('')
+            + `</div>`;
+        chipsEl.classList.remove('hidden');
+
+        chipsEl.querySelectorAll('[data-category-chip]').forEach((btn) => {
+            btn.addEventListener('click', function () {
+                const raw = btn.getAttribute('data-category-chip');
+                activeCategoryId = raw === '' ? null : parseInt(raw, 10);
+                browseLimit = BROWSE_PAGE_SIZE;
+                renderView();
+            });
+        });
+    }
+
+    /** Render daftar sesuai isi kolom cari: >= 2 huruf = hasil pencarian, selain itu = daftar browse per kategori. */
+    function renderView() {
+        if (catalog === null) return;
+
+        const q = searchInput.value.trim();
+
+        if (q.length >= 2) {
+            chipsEl?.classList.add('hidden'); // pencarian selalu lintas kategori
+            const { total, products } = localSearch(q);
+            const footer = total > products.length
+                ? `<p class="px-1 text-xs text-gray-400">Menampilkan ${products.length} dari ${total} hasil — ketik lebih spesifik untuk mempersempit.</p>`
+                : '';
+            renderSearchResults(products, { footer, emptyText: 'Produk tidak ditemukan.' });
+            return;
+        }
+
+        renderCategoryChips();
+
+        const list = activeCategoryId === null
+            ? catalog
+            : catalog.filter((p) => p.category_id === activeCategoryId);
+        const shown = list.slice(0, browseLimit);
+        const remaining = list.length - shown.length;
+        const label = activeCategoryId === null
+            ? 'Semua produk'
+            : (catalogCategories.find((c) => c.id === activeCategoryId)?.name ?? 'Kategori');
+
+        renderSearchResults(shown, {
+            header: `<p class="px-1 text-xs text-gray-500">${escapeHtml(label)} &middot; ${list.length} produk</p>`,
+            footer: remaining > 0
+                ? `<button type="button" data-browse-more
+                           class="w-full py-2.5 rounded-lg border border-dashed border-gray-300 text-sm text-gray-500 hover:bg-gray-50">
+                       Tampilkan ${Math.min(BROWSE_PAGE_SIZE, remaining)} produk lagi (${remaining} tersisa)
+                   </button>`
+                : '',
+            emptyText: 'Belum ada produk di kategori ini.',
+        });
+    }
+
+    /** Kembalikan daftar ke kondisi awal (kolom cari kosong). */
+    function resetResults() {
+        if (catalog !== null) {
+            renderView();
+            return;
+        }
+        chipsEl?.classList.add('hidden');
+        emptyState.textContent = emptyStateText;
+        resultsContainer.innerHTML = '';
+        resultsContainer.appendChild(emptyState);
+    }
+
+    function setCatalogRefreshState(isLoading) {
+        if (!catalogRefreshBtn) return;
+        catalogRefreshBtn.disabled = isLoading;
+        catalogRefreshBtn.textContent = isLoading ? 'Memuat...' : 'Muat ulang produk';
+    }
+
+    function updateCatalogLabel() {
+        if (!catalogUpdatedEl || catalog === null) return;
+        const time = new Date(catalogLoadedAt).toLocaleTimeString('id-ID', { hour: '2-digit', minute: '2-digit' });
+        catalogUpdatedEl.textContent = `Data produk: ${time} · ${catalog.length} produk`;
+        catalogRefreshBtn?.classList.remove('hidden');
+    }
+
+    async function loadCatalog({ manual = false } = {}) {
+        if (!catalogUrl || catalogLoading || catalogDisabled) return;
+
+        catalogLoading = true;
+        setCatalogRefreshState(true);
+
+        let loaded = false;
+        try {
+            const { ok, body } = await fetchJson(catalogUrl);
+
+            if (ok && body && body.too_large) {
+                catalogDisabled = true; // terlalu besar: tetap pakai pencarian server
+                catalog = null;
+            } else if (ok && body && Array.isArray(body.data)) {
+                setCatalog(body.data, Array.isArray(body.categories) ? body.categories : []);
+                catalogLoadedAt = Date.now();
+                if (activeCategoryId !== null && !catalogCategories.some((c) => c.id === activeCategoryId)) {
+                    activeCategoryId = null; // kategori yang dipilih sudah tidak ada/kosong
+                }
+                loaded = true;
+            }
+        } catch (e) {
+            // jaringan putus — katalog lama (kalau ada) tetap dipakai
+        } finally {
+            catalogLoading = false;
+            setCatalogRefreshState(false);
+        }
+
+        if (loaded) {
+            searchToken++; // abaikan hasil pencarian server yang mungkin masih di jalan
+            setSearchLoading(false);
+            updateCatalogLabel();
+            renderView();
+        } else {
+            if (manual) showInlineMessage('Gagal memuat ulang produk. Coba lagi.', true);
+            // Placeholder "Memuat..." awal jangan tertinggal kalau katalog tidak jadi tersedia.
+            if (catalog === null && emptyState.isConnected) emptyState.textContent = emptyStateText;
+        }
+    }
+
+    catalogRefreshBtn?.addEventListener('click', function () {
+        loadCatalog({ manual: true });
+    });
+
+    document.addEventListener('visibilitychange', function () {
+        if (document.visibilityState === 'visible' && Date.now() - catalogLoadedAt > CATALOG_STALE_MS) {
+            loadCatalog();
+        }
     });
 
     // ===================== Scan barcode: submit lewat Enter (USB/manual) =====================
@@ -788,8 +1089,7 @@ document.addEventListener('DOMContentLoaded', function () {
         setSearchLoading(false);
         handleScannedCode(value);
         searchInput.value = '';
-        resultsContainer.innerHTML = '';
-        resultsContainer.appendChild(emptyState);
+        resetResults();
     });
 
     // ===================== Scanner USB tanpa fokus ke kolom (fallback) =====================
@@ -875,4 +1175,11 @@ document.addEventListener('DOMContentLoaded', function () {
 
     // Render awal (keranjang kosong)
     renderCart();
+
+    // Muat katalog produk untuk pencarian instan & daftar browse. Selama belum
+    // selesai, kasir tetap bisa mengetik: pencarian server yang lama jalan sebagai cadangan.
+    if (catalogUrl) {
+        emptyState.textContent = 'Memuat daftar produk...';
+        loadCatalog();
+    }
 });

@@ -18,7 +18,9 @@ class UserFactory extends Factory
     protected static ?string $password;
 
     /**
-     * Define the model's default state.
+     * Default: kasir aktif. Role & status dieksplisitkan di sini (bukan
+     * mengandalkan default kolom di migration) supaya test tidak diam-diam
+     * berubah perilakunya kalau default migration suatu saat diubah.
      *
      * @return array<string, mixed>
      */
@@ -30,7 +32,29 @@ class UserFactory extends Factory
             'email_verified_at' => now(),
             'password' => static::$password ??= Hash::make('password'),
             'remember_token' => Str::random(10),
+            'role' => 'kasir',
+            'is_active' => true,
         ];
+    }
+
+    public function admin(): static
+    {
+        return $this->state(fn () => ['role' => 'admin']);
+    }
+
+    public function kasir(): static
+    {
+        return $this->state(fn () => ['role' => 'kasir']);
+    }
+
+    public function gudang(): static
+    {
+        return $this->state(fn () => ['role' => 'gudang']);
+    }
+
+    public function inactive(): static
+    {
+        return $this->state(fn () => ['is_active' => false]);
     }
 
     /**

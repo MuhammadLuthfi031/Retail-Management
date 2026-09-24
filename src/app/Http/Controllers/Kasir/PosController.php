@@ -2,6 +2,7 @@
 
 namespace App\Http\Controllers\Kasir;
 
+use App\Exceptions\PriceMismatchException;
 use App\Http\Controllers\Controller;
 use App\Models\Category;
 use App\Models\Product;
@@ -102,6 +103,53 @@ class PosController extends Controller
     }
 
     /**
+     * Katalog untuk preload di halaman POS: SEMUA produk aktif yang punya
+     * minimal 1 satuan jual, dikirim sekali saat halaman dibuka. Pencarian
+     * nama/SKU dan filter kategori lalu dilakukan di browser (kasir-pos.js)
+     * tanpa request per ketikan.
+     *
+     * Bentuk tiap produk SAMA dengan hasil search()/lookup() (formatProduct),
+     * jadi tidak ada field baru yang bocor — terutama TIDAK ada average_cost
+     * (harga pokok hanya boleh dilihat Admin lewat laporan).
+     *
+     * Data ini SNAPSHOT: stok/harga bisa berubah setelahnya. Aman karena
+     * checkout() menghitung ulang semuanya dari database, bukan dari angka
+     * yang dikirim client.
+     *
+     * Pengaman ukuran: kalau produk aktif melebihi batas (default 5000,
+     * bisa diubah lewat config('pos.catalog_limit')), katalog TIDAK dikirim
+     * (`too_large: true`) dan client otomatis kembali ke pencarian server —
+     * lebih baik pencarian lambat daripada halaman POS yang berat.
+     */
+    public function katalog(): JsonResponse
+    {
+        $limit = (int) config('pos.catalog_limit', 5000);
+
+        $products = Product::query()
+            ->active()
+            ->whereHas('units', fn ($u) => $u->whereNotNull('selling_price'))
+            ->with(['units' => fn ($u) => $u->whereNotNull('selling_price')->orderByDesc('conversion_to_base')])
+            ->orderBy('name')
+            ->limit($limit + 1)
+            ->get();
+
+        if ($products->count() > $limit) {
+            return response()->json(['data' => [], 'categories' => [], 'too_large' => true]);
+        }
+
+        $categories = Category::query()
+            ->whereIn('id', $products->pluck('category_id')->unique())
+            ->orderBy('name')
+            ->get(['id', 'name']);
+
+        return response()->json([
+            'data' => $products->map(fn (Product $p) => $this->formatProduct($p))->values(),
+            'categories' => $categories->map(fn (Category $c) => ['id' => $c->id, 'name' => $c->name])->values(),
+            'too_large' => false,
+        ]);
+    }
+
+    /**
      * Lookup EXACT by kode — dipakai scanner USB/kamera/upload foto (semua
      * ujung-ujungnya kirim string kode ke sini) dan saat kasir ketik barcode
      * manual lalu tekan Enter.
@@ -179,142 +227,28 @@ class PosController extends Controller
             'items.*.qty' => ['required', 'numeric', 'min:0.001'],
             'items.*.discount_type' => ['nullable', 'in:nominal,percent'],
             'items.*.discount_value' => ['nullable', 'numeric', 'min:0'],
+            // Harga satuan SAAT kasir menambahkan produk ke keranjang di layar
+            // (dari katalog preload/hasil pencarian) — BUKAN sumber harga (itu
+            // tetap selalu dari DB di bawah), cuma pembanding untuk mendeteksi
+            // harga yang sudah usang di layar (lihat PriceMismatchException).
+            // Nullable supaya klien yang belum kirim field ini tidak ikut
+            // divalidasi (mismatch price tidak dicek untuk item itu).
+            'items.*.expected_price' => ['nullable', 'integer', 'min:0'],
             'payment_method' => ['required', 'in:cash,debit,qris,transfer'],
             'paid_amount' => ['required', 'integer', 'min:0'],
         ]);
 
-        $transaction = DB::transaction(function () use ($validated) {
-            $totalAmount = 0;   // gross, sebelum diskon
-            $totalDiscount = 0;
-            $lines = [];
-
-            // Ambil & lock SEMUA ProductUnit yang direferensikan keranjang dalam 1
-            // query (sebelumnya: 1 query per baris di dalam loop di bawah — N+1
-            // di jalur paling sering dipanggil di seluruh aplikasi, tiap transaksi
-            // kasir). orderBy('id') sengaja ditambahkan supaya urutan pengambilan
-            // lock antar baris SELALU konsisten (naik dari id terkecil) — tanpa
-            // ini, 2 kasir checkout nyaris bersamaan dengan produk sama tapi
-            // urutan keranjang berbeda bisa saling tunggu (deadlock) di database.
-            // lockForUpdate di sini + lock lagi di dalam StockMovement::record()
-            // di bawah aman (savepoint bersarang, koneksi & lock yang sama).
-            $unitIds = collect($validated['items'])->pluck('unit_id')->unique();
-            $units = ProductUnit::with('product')->lockForUpdate()->whereIn('id', $unitIds)->orderBy('id')->get()->keyBy('id');
-
-            foreach ($validated['items'] as $item) {
-                $unit = $units->get($item['unit_id']);
-
-                if (! $unit || ! $unit->product || $unit->product_id !== (int) $item['product_id']) {
-                    throw ValidationException::withMessages([
-                        'items' => 'Salah satu produk di keranjang sudah tidak valid. Muat ulang halaman dan coba lagi.',
-                    ]);
-                }
-                if ($unit->selling_price === null) {
-                    throw ValidationException::withMessages([
-                        'items' => "Satuan \"{$unit->unit_name}\" untuk \"{$unit->product->name}\" tidak dijual langsung.",
-                    ]);
-                }
-                if (! $unit->product->is_active) {
-                    throw ValidationException::withMessages([
-                        'items' => "Produk \"{$unit->product->name}\" sedang nonaktif, tidak bisa dijual.",
-                    ]);
-                }
-
-                $qty = (float) $item['qty'];
-                if (! $unit->product->allow_fractional_sale && abs($qty - round($qty)) > 0.0001) {
-                    throw ValidationException::withMessages([
-                        'items' => "Produk \"{$unit->product->name}\" tidak boleh dijual dengan kuantitas pecahan.",
-                    ]);
-                }
-
-                $gross = (int) round($unit->selling_price * $qty);
-                $discountAmount = $this->computeDiscount(
-                    $gross,
-                    $item['discount_type'] ?? null,
-                    (float) ($item['discount_value'] ?? 0)
-                );
-                $subtotal = $gross - $discountAmount;
-
-                $totalAmount += $gross;
-                $totalDiscount += $discountAmount;
-
-                $lines[] = [
-                    'product' => $unit->product,
-                    'unit' => $unit,
-                    'qty' => $qty,
-                    'price' => (int) $unit->selling_price,
-                    'discount_amount' => $discountAmount,
-                    'subtotal' => $subtotal,
-                ];
-            }
-
-            $grandTotal = $totalAmount - $totalDiscount;
-            $isCash = $validated['payment_method'] === 'cash';
-
-            if ($isCash && $validated['paid_amount'] < $grandTotal) {
-                throw ValidationException::withMessages([
-                    'paid_amount' => 'Uang diterima kurang dari total belanja.',
-                ]);
-            }
-
-            $paidAmount = $isCash ? $validated['paid_amount'] : $grandTotal;
-            $changeAmount = $isCash ? $paidAmount - $grandTotal : 0;
-
-            $transaction = Transaction::createWithUniqueInvoice([
-                'user_id' => auth()->id(),
-                'total_amount' => $totalAmount,
-                'discount_amount' => $totalDiscount,
-                'grand_total' => $grandTotal,
-                'paid_amount' => $paidAmount,
-                'change_amount' => $changeAmount,
-                'payment_method' => $validated['payment_method'],
-                'status' => 'completed',
-            ]);
-
-            foreach ($lines as $line) {
-                // Kuantitas jual (dalam satuan yang dipilih kasir) WAJIB
-                // dikonversi ke satuan dasar dulu sebelum memotong stok —
-                // StockMovement::record() selalu bekerja di satuan dasar.
-                $qtyInBase = round($line['qty'] * $line['unit']->conversion_to_base, 3);
-
-                StockMovement::record(
-                    product: $line['product'],
-                    type: 'sale',
-                    quantity: $qtyInBase,
-                    userId: auth()->id(),
-                    reference: $transaction->invoice_number,
-                    note: "Penjualan POS: {$line['qty']} {$line['unit']->unit_name}",
-                );
-
-                // PENTING: baca average_cost SETELAH StockMovement::record() di
-                // atas (yang lockForUpdate baris produk ini), BUKAN dari nilai
-                // yang sudah basi sejak awal request — supaya snapshot cost basis
-                // di transaction_details akurat walau ada pembelian lain yang
-                // barusan mengubah average_cost produk ini persis di detik yang
-                // sama. Snapshot ini basis Laporan Laba/Rugi (§7.3) supaya tetap
-                // akurat historis meski average_cost produk berubah lagi nanti.
-                //
-                // TIDAK perlu query refresh() lagi di sini (dulu ada, sudah
-                // dihapus): StockMovement::record() di atas sudah mengembalikan
-                // attribute produk yang fresh langsung ke objek $line['product']
-                // ini lewat setRawAttributes() — refresh() cuma mengulang query
-                // yang hasilnya sudah pasti sama, jadi murni query berlebih.
-                $costBasis = $line['product']->average_cost;
-
-                $transaction->details()->create([
-                    'product_id' => $line['product']->id,
-                    'product_name' => $line['product']->name,
-                    'unit_name' => $line['unit']->unit_name,
-                    'unit_conversion' => $line['unit']->conversion_to_base,
-                    'price' => $line['price'],
-                    'unit_cost' => $costBasis,
-                    'discount_amount' => $line['discount_amount'],
-                    'quantity' => $line['qty'],
-                    'subtotal' => $line['subtotal'],
-                ]);
-            }
-
-            return $transaction;
-        });
+        try {
+            $transaction = DB::transaction(fn () => $this->processCheckout($validated));
+        } catch (PriceMismatchException $e) {
+            // Dilempar SEBELUM Transaction::create/StockMovement::record apa pun
+            // dipanggil (lihat processCheckout) — tidak ada tulisan DB untuk
+            // di-rollback selain exception ini sendiri membatalkan transaksi.
+            return response()->json([
+                'message' => $e->getMessage(),
+                'mismatches' => $e->mismatches,
+            ], 409);
+        }
 
         return response()->json([
             'message' => 'Transaksi berhasil disimpan.',
@@ -330,6 +264,169 @@ class PosController extends Controller
                 'created_at' => $transaction->created_at->toIso8601String(),
             ],
         ], 201);
+    }
+
+    /**
+     * Isi transaksi sebenarnya, dipanggil dari dalam DB::transaction() di
+     * checkout(). Dipisah jadi method sendiri (bukan closure inline) supaya
+     * PriceMismatchException di tengah bisa dilempar lalu ditangkap dengan
+     * bersih di checkout(), tanpa closure bersarang yang panjang.
+     */
+    private function processCheckout(array $validated): Transaction
+    {
+        $totalAmount = 0;   // gross, sebelum diskon
+        $totalDiscount = 0;
+        $lines = [];
+        $mismatches = [];
+
+        // Ambil & lock SEMUA ProductUnit yang direferensikan keranjang dalam 1
+        // query (sebelumnya: 1 query per baris di dalam loop di bawah — N+1
+        // di jalur paling sering dipanggil di seluruh aplikasi, tiap transaksi
+        // kasir). orderBy('id') sengaja ditambahkan supaya urutan pengambilan
+        // lock antar baris SELALU konsisten (naik dari id terkecil) — tanpa
+        // ini, 2 kasir checkout nyaris bersamaan dengan produk sama tapi
+        // urutan keranjang berbeda bisa saling tunggu (deadlock) di database.
+        // lockForUpdate di sini + lock lagi di dalam StockMovement::record()
+        // di bawah aman (savepoint bersarang, koneksi & lock yang sama).
+        $unitIds = collect($validated['items'])->pluck('unit_id')->unique();
+        $units = ProductUnit::with('product')->lockForUpdate()->whereIn('id', $unitIds)->orderBy('id')->get()->keyBy('id');
+
+        foreach ($validated['items'] as $item) {
+            $unit = $units->get($item['unit_id']);
+
+            if (! $unit || ! $unit->product || $unit->product_id !== (int) $item['product_id']) {
+                throw ValidationException::withMessages([
+                    'items' => 'Salah satu produk di keranjang sudah tidak valid. Muat ulang halaman dan coba lagi.',
+                ]);
+            }
+            if ($unit->selling_price === null) {
+                throw ValidationException::withMessages([
+                    'items' => "Satuan \"{$unit->unit_name}\" untuk \"{$unit->product->name}\" tidak dijual langsung.",
+                ]);
+            }
+            if (! $unit->product->is_active) {
+                throw ValidationException::withMessages([
+                    'items' => "Produk \"{$unit->product->name}\" sedang nonaktif, tidak bisa dijual.",
+                ]);
+            }
+
+            $qty = (float) $item['qty'];
+            if (! $unit->product->allow_fractional_sale && abs($qty - round($qty)) > 0.0001) {
+                throw ValidationException::withMessages([
+                    'items' => "Produk \"{$unit->product->name}\" tidak boleh dijual dengan kuantitas pecahan.",
+                ]);
+            }
+
+            // Deteksi harga usang di layar kasir (lihat PriceMismatchException).
+            // Dikumpulkan dulu (bukan langsung throw) supaya kasir sekali lihat
+            // SEMUA baris yang berubah, bukan cuma baris pertama yang ketemu.
+            if (array_key_exists('expected_price', $item) && $item['expected_price'] !== null
+                && (int) $item['expected_price'] !== (int) $unit->selling_price) {
+                $mismatches[] = [
+                    'product_id' => $unit->product->id,
+                    'product_name' => $unit->product->name,
+                    'unit_id' => $unit->id,
+                    'unit_name' => $unit->unit_name,
+                    'expected_price' => (int) $item['expected_price'],
+                    'current_price' => (int) $unit->selling_price,
+                ];
+            }
+
+            $gross = (int) round($unit->selling_price * $qty);
+            $discountAmount = $this->computeDiscount(
+                $gross,
+                $item['discount_type'] ?? null,
+                (float) ($item['discount_value'] ?? 0)
+            );
+            $subtotal = $gross - $discountAmount;
+
+            $totalAmount += $gross;
+            $totalDiscount += $discountAmount;
+
+            $lines[] = [
+                'product' => $unit->product,
+                'unit' => $unit,
+                'qty' => $qty,
+                'price' => (int) $unit->selling_price,
+                'discount_amount' => $discountAmount,
+                'subtotal' => $subtotal,
+            ];
+        }
+
+        // Belum ada SATU PUN tulisan ke DB di titik ini (Transaction/StockMovement
+        // baru dibuat di bawah) — melempar di sini membatalkan seluruh proses
+        // tanpa perlu me-rollback data apa pun secara eksplisit.
+        if (! empty($mismatches)) {
+            throw new PriceMismatchException($mismatches);
+        }
+
+        $grandTotal = $totalAmount - $totalDiscount;
+        $isCash = $validated['payment_method'] === 'cash';
+
+        if ($isCash && $validated['paid_amount'] < $grandTotal) {
+            throw ValidationException::withMessages([
+                'paid_amount' => 'Uang diterima kurang dari total belanja.',
+            ]);
+        }
+
+        $paidAmount = $isCash ? $validated['paid_amount'] : $grandTotal;
+        $changeAmount = $isCash ? $paidAmount - $grandTotal : 0;
+
+        $transaction = Transaction::createWithUniqueInvoice([
+            'user_id' => auth()->id(),
+            'total_amount' => $totalAmount,
+            'discount_amount' => $totalDiscount,
+            'grand_total' => $grandTotal,
+            'paid_amount' => $paidAmount,
+            'change_amount' => $changeAmount,
+            'payment_method' => $validated['payment_method'],
+            'status' => 'completed',
+        ]);
+
+        foreach ($lines as $line) {
+            // Kuantitas jual (dalam satuan yang dipilih kasir) WAJIB
+            // dikonversi ke satuan dasar dulu sebelum memotong stok —
+            // StockMovement::record() selalu bekerja di satuan dasar.
+            $qtyInBase = round($line['qty'] * $line['unit']->conversion_to_base, 3);
+
+            StockMovement::record(
+                product: $line['product'],
+                type: 'sale',
+                quantity: $qtyInBase,
+                userId: auth()->id(),
+                reference: $transaction->invoice_number,
+                note: "Penjualan POS: {$line['qty']} {$line['unit']->unit_name}",
+            );
+
+            // PENTING: baca average_cost SETELAH StockMovement::record() di
+            // atas (yang lockForUpdate baris produk ini), BUKAN dari nilai
+            // yang sudah basi sejak awal request — supaya snapshot cost basis
+            // di transaction_details akurat walau ada pembelian lain yang
+            // barusan mengubah average_cost produk ini persis di detik yang
+            // sama. Snapshot ini basis Laporan Laba/Rugi (§7.3) supaya tetap
+            // akurat historis meski average_cost produk berubah lagi nanti.
+            //
+            // TIDAK perlu query refresh() lagi di sini (dulu ada, sudah
+            // dihapus): StockMovement::record() di atas sudah mengembalikan
+            // attribute produk yang fresh langsung ke objek $line['product']
+            // ini lewat setRawAttributes() — refresh() cuma mengulang query
+            // yang hasilnya sudah pasti sama, jadi murni query berlebih.
+            $costBasis = $line['product']->average_cost;
+
+            $transaction->details()->create([
+                'product_id' => $line['product']->id,
+                'product_name' => $line['product']->name,
+                'unit_name' => $line['unit']->unit_name,
+                'unit_conversion' => $line['unit']->conversion_to_base,
+                'price' => $line['price'],
+                'unit_cost' => $costBasis,
+                'discount_amount' => $line['discount_amount'],
+                'quantity' => $line['qty'],
+                'subtotal' => $line['subtotal'],
+            ]);
+        }
+
+        return $transaction;
     }
 
     /** Sama persis dengan logika di frontend (kasir-pos.js computeLineAmounts) — SENGAJA diduplikasi, bukan dipercaya dari client. */
@@ -348,6 +445,7 @@ class PosController extends Controller
     {
         return [
             'id' => $product->id,
+            'category_id' => $product->category_id,
             'name' => $product->name,
             'sku' => $product->sku,
             'tracking_mode' => $product->tracking_mode,

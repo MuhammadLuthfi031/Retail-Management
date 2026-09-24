@@ -39,6 +39,7 @@ Route::middleware(['auth', 'no-cache'])->group(function () {
     Route::middleware('role:admin,kasir')->prefix('kasir')->name('kasir.')->group(function () {
         Route::get('/pos', [PosController::class, 'index'])->name('pos');
         Route::get('/pos/cari', [PosController::class, 'search'])->name('pos.cari');
+        Route::get('/pos/katalog', [PosController::class, 'katalog'])->name('pos.katalog');
         Route::get('/pos/barcode/{code}', [PosController::class, 'lookup'])->name('pos.barcode');
         Route::post('/pos/checkout', [PosController::class, 'checkout'])->name('pos.checkout');
         Route::get('/riwayat', [RiwayatController::class, 'index'])->name('riwayat');
