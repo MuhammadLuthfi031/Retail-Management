@@ -39,7 +39,7 @@
                 @csrf
 
                 <!-- Tabel — desktop/tablet (≥768px), tidak berubah -->
-                <div class="hidden md:block bg-white shadow-sm sm:rounded-lg overflow-hidden overflow-x-auto">
+                <div id="terimaDesktopFields" class="hidden md:block bg-white shadow-sm sm:rounded-lg overflow-hidden overflow-x-auto">
                     <table class="min-w-full divide-y divide-gray-200 text-sm">
                         <thead class="bg-gray-50">
                             <tr>
@@ -80,8 +80,15 @@
                 </div>
 
                 <!-- Kartu — mobile (<768px): input qty SAMA persis (name, id, max, old())
-                     supaya submit form tetap jalan identik dengan versi tabel di atas. -->
-                <div class="md:hidden space-y-2.5">
+                     supaya submit form tetap jalan identik dengan versi tabel di atas.
+                     PENTING: karena berbagi 1 <form> dengan tabel desktop di atas dan
+                     name="received[...]" nya SENGAJA sama, dua wrapper ini (id
+                     terimaDesktopFields & terimaMobileFields) WAJIB tetap punya id itu —
+                     purchase-receipt-form.js menonaktifkan (disabled) input pada wrapper
+                     yang sedang tidak terlihat, supaya browser tidak ikut mengirim nilai
+                     kosong dari versi yang tersembunyi dan menimpa balik nilai yang sudah
+                     diisi di versi yang terlihat. Lihat komentar lengkap di file JS itu. -->
+                <div id="terimaMobileFields" class="md:hidden space-y-2.5">
                     @foreach ($po->items as $item)
                         @php $remaining = $item->remainingQuantity(); @endphp
                         <div class="bg-white border border-gray-200 rounded-lg p-3">
