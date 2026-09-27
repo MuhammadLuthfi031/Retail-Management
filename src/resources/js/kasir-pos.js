@@ -45,6 +45,35 @@ document.addEventListener('DOMContentLoaded', function () {
         return parseFloat((Math.round(Number(n) * 1000) / 1000).toFixed(3)).toString();
     }
 
+    // Tangga nominal uang kertas/koin yang umum dipakai di Indonesia, dari
+    // kecil ke besar. Dipakai untuk menyarankan 2 nominal "uang pas ke atas"
+    // di modal pembayaran cash (mis. total Rp 47.500 -> saran Rp 50.000 &
+    // Rp 100.000), supaya kasir tidak perlu ketik manual untuk kasus umum.
+    const CASH_DENOMINATION_LADDER = [
+        1000, 2000, 5000, 10000, 20000, 50000, 100000,
+        150000, 200000, 250000, 500000, 1000000, 1500000, 2000000,
+    ];
+
+    /** 2 nominal pembulatan ke atas TERKECIL yang > total (supaya tidak duplikat dengan "Uang Pas"). Total besar sekali bisa menghasilkan array kosong — itu wajar, tombol cepatnya cukup "Uang Pas" saja. */
+    function suggestedCashAmounts(total) {
+        return CASH_DENOMINATION_LADDER.filter((v) => v > total).slice(0, 2);
+    }
+
+    function formatCashShortLabel(v) {
+        if (v % 1000000 === 0) return (v / 1000000) + 'jt';
+        if (v % 1000 === 0) return (v / 1000) + 'rb';
+        return formatRupiah(v);
+    }
+
+    function cashQuickButtonsHtml(total) {
+        const options = [total, ...suggestedCashAmounts(total)];
+        return options.map((v, i) => `
+            <button type="button" data-cash-quick="${v}"
+                    class="px-3 h-9 rounded-full text-xs font-semibold border border-gray-300 text-gray-600 hover:border-indigo-400 hover:text-indigo-600 hover:bg-indigo-50">
+                ${i === 0 ? 'Uang Pas' : formatCashShortLabel(v)}
+            </button>`).join('');
+    }
+
     function debounce(fn, delay) {
         let t = null;
         return function (...args) {
@@ -199,25 +228,25 @@ document.addEventListener('DOMContentLoaded', function () {
                     <p class="text-sm font-medium text-gray-900 truncate">${escapeHtml(line.productName)}</p>
                     <p class="text-xs text-gray-400">${escapeHtml(line.unitName)} &middot; ${formatRupiah(line.price)}</p>
                     ${priceChangedHtml}
-                    <div class="mt-2 flex items-center gap-1.5">
+                    <div class="mt-2.5 flex items-center gap-1.5">
                         <button type="button" data-cart-dec="${line.lineId}"
-                                style="width:1.75rem;height:1.75rem;" class="w-7 h-7 flex items-center justify-center rounded-md border border-gray-300 text-gray-500 hover:bg-gray-50 text-base leading-none">&minus;</button>
+                                class="w-11 h-11 flex items-center justify-center rounded-md border border-gray-300 text-gray-500 hover:bg-gray-50 text-lg leading-none shrink-0">&minus;</button>
                         <input type="number" step="${step}" min="${step}" value="${formatQty(line.qty)}"
                                data-cart-qty-input="${line.lineId}"
-                               style="width:4rem;" class="w-16 text-center rounded-md text-sm py-1 ${exceeds ? 'border-red-400 focus:border-red-500 focus:ring-red-500' : 'border-gray-300'}">
+                               class="w-16 h-11 text-center rounded-md text-base py-1 ${exceeds ? 'border-red-400 focus:border-red-500 focus:ring-red-500' : 'border-gray-300'}">
                         <button type="button" data-cart-inc="${line.lineId}"
-                                style="width:1.75rem;height:1.75rem;" class="w-7 h-7 flex items-center justify-center rounded-md border border-gray-300 text-gray-500 hover:bg-gray-50 text-base leading-none">&plus;</button>
-                        <span class="mx-1 text-gray-200">|</span>
+                                class="w-11 h-11 flex items-center justify-center rounded-md border border-gray-300 text-gray-500 hover:bg-gray-50 text-lg leading-none shrink-0">&plus;</button>
+                    </div>
+                    <div class="mt-1.5">
                         ${discountBadge}
                     </div>
                     ${warningHtml}
                 </div>
-                <div class="text-right shrink-0">
+                <div class="text-right shrink-0 flex flex-col items-end">
                     ${discountAmount > 0 ? `<p class="text-xs text-gray-400 line-through">${formatRupiah(gross)}</p>` : ''}
                     <p class="text-sm font-semibold text-gray-900">${formatRupiah(net)}</p>
                     <button type="button" data-cart-remove="${line.lineId}" title="Hapus dari keranjang"
-                            style="width:1.75rem;height:1.75rem;"
-                            class="mt-2 w-7 h-7 inline-flex items-center justify-center rounded-md border border-gray-300 bg-white text-gray-500 hover:bg-red-50 hover:border-red-300 hover:text-red-600 transition-colors">
+                            class="mt-2.5 w-11 h-11 inline-flex items-center justify-center rounded-md border border-gray-300 bg-white text-gray-500 hover:bg-red-50 hover:border-red-300 hover:text-red-600 transition-colors">
                         <svg xmlns="http://www.w3.org/2000/svg" class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor">
                             <path stroke-linecap="round" stroke-linejoin="round" d="M14.74 9l-.346 9m-4.788 0L9.26 9m9.968-3.21c.342.052.682.107 1.022.166m-1.022-.165L18.16 19.673a2.25 2.25 0 01-2.244 2.077H8.084a2.25 2.25 0 01-2.244-2.077L4.772 5.79m14.456 0a48.108 48.108 0 00-3.478-.397m-12 .562c.34-.059.68-.114 1.022-.165m0 0a48.11 48.11 0 013.478-.397m7.5 0v-.916c0-1.18-.91-2.164-2.09-2.201a51.964 51.964 0 00-3.32 0c-1.18.037-2.09 1.022-2.09 2.201v.916m7.5 0a48.667 48.667 0 00-7.5 0" />
                         </svg>
@@ -382,10 +411,13 @@ document.addEventListener('DOMContentLoaded', function () {
             <div id="pos-cash-fields" class="${isCash ? '' : 'hidden'} mb-4 space-y-2">
                 <label class="text-xs text-gray-500">Uang Diterima</label>
                 <input type="number" min="0" id="pos-paid-input" value="${paidAmount}"
-                       class="w-full rounded-md text-sm border-gray-300">
-                <div id="pos-cash-summary-row" class="flex justify-between text-sm font-medium">
-                    <span id="pos-cash-summary-label"></span>
-                    <span id="pos-cash-summary-amount"></span>
+                       class="w-full rounded-md text-base py-2.5 border-gray-300">
+                <div class="flex flex-wrap gap-1.5">
+                    ${cashQuickButtonsHtml(totals.grandTotal)}
+                </div>
+                <div id="pos-cash-summary-row" class="flex items-center justify-between rounded-lg px-3 py-2.5">
+                    <span id="pos-cash-summary-label" class="text-xs font-medium text-gray-500"></span>
+                    <span id="pos-cash-summary-amount" class="text-2xl font-bold"></span>
                 </div>
             </div>
 
@@ -413,6 +445,14 @@ document.addEventListener('DOMContentLoaded', function () {
             document.getElementById('pos-paid-input').addEventListener('input', function (e) {
                 const val = parseInt(e.target.value, 10) || 0;
                 updateCashSummary(totals, val, true);
+            });
+
+            content.querySelectorAll('[data-cash-quick]').forEach((btn) => {
+                btn.addEventListener('click', function () {
+                    const val = parseInt(btn.getAttribute('data-cash-quick'), 10) || 0;
+                    document.getElementById('pos-paid-input').value = val;
+                    updateCashSummary(totals, val, true);
+                });
             });
         }
 
@@ -444,8 +484,10 @@ document.addEventListener('DOMContentLoaded', function () {
             const row = document.getElementById('pos-cash-summary-row');
             label.textContent = insufficient ? 'Kurang' : 'Kembalian';
             amount.textContent = formatRupiah(insufficient ? totals.grandTotal - paidAmount : change);
-            row.classList.toggle('text-red-600', insufficient);
-            row.classList.toggle('text-green-600', !insufficient);
+            row.classList.toggle('bg-red-50', insufficient);
+            row.classList.toggle('bg-emerald-50', !insufficient);
+            amount.classList.toggle('text-red-600', insufficient);
+            amount.classList.toggle('text-emerald-600', !insufficient);
         }
 
         submitBtn.disabled = insufficient;
@@ -564,7 +606,13 @@ document.addEventListener('DOMContentLoaded', function () {
     }
 
     function showTransactionSuccess(data) {
-        loadCatalog(); // stok berubah karena penjualan ini -> segarkan data produk di latar belakang
+        // Refresh TERTARGET: cuma produk yang baris-barisnya baru saja terjual
+        // (bukan reload SELURUH katalog aktif — lihat catatan di
+        // PosController::katalog() & §5 temuan #3). `cart` MASIH berisi baris
+        // transaksi ini di titik ini (baru dikosongkan saat kasir klik
+        // "Transaksi Baru" di bawah), jadi aman diambil dari situ.
+        const soldProductIds = [...new Set(cart.map((l) => l.productId))];
+        refreshCatalogFor(soldProductIds);
 
         const content = document.getElementById('pos-payment-content');
         content.innerHTML = `
@@ -580,8 +628,12 @@ document.addEventListener('DOMContentLoaded', function () {
                 <div class="rounded-md bg-gray-50 p-3 text-sm space-y-1 text-left mb-4">
                     <div class="flex justify-between"><span class="text-gray-500">Total Bayar</span><span class="font-medium">${formatRupiah(data.grand_total)}</span></div>
                     <div class="flex justify-between"><span class="text-gray-500">Dibayar (${data.payment_method})</span><span class="font-medium">${formatRupiah(data.paid_amount)}</span></div>
-                    ${data.payment_method === 'cash' ? `<div class="flex justify-between text-green-600 font-semibold"><span>Kembalian</span><span>${formatRupiah(data.change_amount)}</span></div>` : ''}
                 </div>
+                ${data.payment_method === 'cash' ? `
+                    <div class="flex items-center justify-between rounded-lg bg-emerald-50 px-3 py-2.5 mb-4">
+                        <span class="text-xs font-medium text-gray-500">Kembalian</span>
+                        <span class="text-2xl font-bold text-emerald-600">${formatRupiah(data.change_amount)}</span>
+                    </div>` : ''}
 
                 <a href="${strukUrlBase}/${data.id}/struk" target="_blank" rel="noopener"
                    class="block text-center w-full py-2 rounded-md bg-gray-100 text-gray-700 text-sm mb-2 hover:bg-gray-200">Cetak Struk</a>
@@ -1009,6 +1061,38 @@ document.addEventListener('DOMContentLoaded', function () {
         const time = new Date(catalogLoadedAt).toLocaleTimeString('id-ID', { hour: '2-digit', minute: '2-digit' });
         catalogUpdatedEl.textContent = `Data produk: ${time} · ${catalog.length} produk`;
         catalogRefreshBtn?.classList.remove('hidden');
+    }
+
+    /**
+     * Refresh TERTARGET — cuma produk-produk yang product_id-nya diberikan,
+     * dipakai setelah checkout (lihat showTransactionSuccess). TIDAK
+     * menggantikan `catalog` (beda dengan loadCatalog/setCatalog): produk yang
+     * ditemukan di-update di TEMPAT (mutasi objek yang sama), supaya referensi
+     * yang sudah dipegang `catalogIndex` (dibangun setCatalog()) otomatis ikut
+     * ter-update tanpa perlu dibangun ulang — pola yang sama seperti
+     * applyPriceMismatches() di atas.
+     */
+    async function refreshCatalogFor(productIds) {
+        if (!catalogUrl || catalog === null || !Array.isArray(productIds) || productIds.length === 0) return;
+
+        try {
+            const url = catalogUrl + (catalogUrl.includes('?') ? '&' : '?') + 'ids=' + productIds.join(',');
+            const { ok, body } = await fetchJson(url);
+            if (!ok || !body || !Array.isArray(body.data)) return;
+
+            body.data.forEach((fresh) => {
+                const existing = catalog.find((p) => p.id === fresh.id);
+                if (existing) {
+                    existing.stock = fresh.stock;
+                    existing.units = fresh.units;
+                }
+            });
+
+            renderView(); // supaya kartu yang lagi tampil ikut menunjukkan stok/harga terbaru
+        } catch (e) {
+            // Jaringan putus — bukan hal kritis (cuma info stok display di POS),
+            // data lama tetap dipakai sampai refresh berikutnya berhasil.
+        }
     }
 
     async function loadCatalog({ manual = false } = {}) {

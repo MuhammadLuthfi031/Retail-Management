@@ -50,7 +50,7 @@
                     </div>
 
                     <div class="mt-2 flex flex-wrap items-center justify-between gap-x-4 gap-y-1">
-                        <p class="text-xs text-gray-400 flex items-center gap-1.5">
+                        <p class="hidden md:flex text-xs text-gray-400 items-center gap-1.5">
                             <x-icon name="barcode" class="w-3.5 h-3.5 shrink-0" />
                             Scanner USB otomatis aktif kapan saja — tidak perlu klik kolom dulu, langsung tembak.
                         </p>

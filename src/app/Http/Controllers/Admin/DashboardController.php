@@ -42,8 +42,14 @@ class DashboardController extends Controller
     {
         $base = fn () => Transaction::where('status', 'completed')->whereDate('created_at', Carbon::today());
 
-        $jumlahTransaksi = $base()->count();
-        $omzet = (int) $base()->sum('grand_total');
+        // 1 query gabungan (COUNT + SUM sekaligus) menggantikan 2 query
+        // terpisah yang sebelumnya ada di sini — pola yang sama persis dengan
+        // LaporanController::penjualanData() (§5 temuan #5). toBase() supaya
+        // turun ke query builder polos, bukan hydrate model Transaction yang
+        // tidak dipakai sama sekali di sini.
+        $summary = $base()->toBase()->selectRaw('COUNT(*) as jumlah, COALESCE(SUM(grand_total), 0) as total')->first();
+        $jumlahTransaksi = (int) $summary->jumlah;
+        $omzet = (int) $summary->total;
 
         return [
             'omzet' => $omzet,

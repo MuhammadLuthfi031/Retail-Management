@@ -53,7 +53,12 @@ server {
         fastcgi_param SCRIPT_FILENAME $document_root$fastcgi_script_name;
         fastcgi_param HTTPS on;
         include fastcgi_params;
-        fastcgi_read_timeout 300;
+        # Diselaraskan dengan max_execution_time=120 di docker/php/php.ini —
+        # sebelumnya 300s di sini TIDAK pernah benar-benar melindungi apa pun,
+        # karena PHP sendiri sudah fatal error di detik ke-120 lebih dulu.
+        # 135s = 120s + buffer kecil untuk overhead jaringan/response (§5
+        # temuan #2).
+        fastcgi_read_timeout 135;
     }
 
     location ~ /\.(?!well-known).* {

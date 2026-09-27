@@ -103,35 +103,50 @@ class PosController extends Controller
     }
 
     /**
-     * Katalog untuk preload di halaman POS: SEMUA produk aktif yang punya
-     * minimal 1 satuan jual, dikirim sekali saat halaman dibuka. Pencarian
-     * nama/SKU dan filter kategori lalu dilakukan di browser (kasir-pos.js)
-     * tanpa request per ketikan.
+     * Katalog untuk preload di halaman POS. Bentuk tiap produk SAMA dengan
+     * hasil search()/lookup() (formatProduct), jadi tidak ada field baru yang
+     * bocor — terutama TIDAK ada average_cost (harga pokok hanya boleh
+     * dilihat Admin lewat laporan). Data ini SNAPSHOT: stok/harga bisa
+     * berubah setelahnya, aman karena checkout() selalu hitung ulang dari
+     * database, bukan dari angka yang dikirim client.
      *
-     * Bentuk tiap produk SAMA dengan hasil search()/lookup() (formatProduct),
-     * jadi tidak ada field baru yang bocor — terutama TIDAK ada average_cost
-     * (harga pokok hanya boleh dilihat Admin lewat laporan).
-     *
-     * Data ini SNAPSHOT: stok/harga bisa berubah setelahnya. Aman karena
-     * checkout() menghitung ulang semuanya dari database, bukan dari angka
-     * yang dikirim client.
-     *
-     * Pengaman ukuran: kalau produk aktif melebihi batas (default 5000,
-     * bisa diubah lewat config('pos.catalog_limit')), katalog TIDAK dikirim
-     * (`too_large: true`) dan client otomatis kembali ke pencarian server —
-     * lebih baik pencarian lambat daripada halaman POS yang berat.
+     * Dua mode:
+     *  1) Tanpa `?ids=` — load PENUH (dipakai saat halaman POS pertama kali
+     *     dibuka, refresh manual, atau katalog basi setelah tab lama tidak
+     *     aktif). Pengaman ukuran: kalau produk aktif melebihi batas (default
+     *     5000, bisa diubah lewat config('pos.catalog_limit')), katalog TIDAK
+     *     dikirim (`too_large: true`) dan client otomatis kembali ke
+     *     pencarian server — lebih baik pencarian lambat daripada halaman POS
+     *     yang berat.
+     *  2) Dengan `?ids=1,2,3` — refresh TERTARGET, cuma produk-produk itu saja.
+     *     Dipakai kasir-pos.js setelah checkout berhasil: stok produk yang
+     *     BARU SAJA terjual jelas berubah, produk lain di katalog TIDAK
+     *     tersentuh sama sekali oleh transaksi itu. Sebelumnya kode ini
+     *     menarik ulang SELURUH katalog aktif (bisa ratusan/ribuan baris)
+     *     setiap kali ada 1 transaksi checkout — lihat §5 temuan #3 analisis.
      */
-    public function katalog(): JsonResponse
+    public function katalog(Request $request): JsonResponse
     {
-        $limit = (int) config('pos.catalog_limit', 5000);
-
-        $products = Product::query()
+        $query = Product::query()
             ->active()
             ->whereHas('units', fn ($u) => $u->whereNotNull('selling_price'))
-            ->with(['units' => fn ($u) => $u->whereNotNull('selling_price')->orderByDesc('conversion_to_base')])
-            ->orderBy('name')
-            ->limit($limit + 1)
-            ->get();
+            ->with(['units' => fn ($u) => $u->whereNotNull('selling_price')->orderByDesc('conversion_to_base')]);
+
+        if ($request->filled('ids')) {
+            $ids = array_values(array_filter(array_map('intval', explode(',', (string) $request->query('ids')))));
+
+            $products = (clone $query)->whereIn('id', $ids)->orderBy('name')->get();
+
+            return response()->json([
+                'data' => $products->map(fn (Product $p) => $this->formatProduct($p))->values(),
+                'categories' => [],
+                'too_large' => false,
+            ]);
+        }
+
+        $limit = (int) config('pos.catalog_limit', 5000);
+
+        $products = (clone $query)->orderBy('name')->limit($limit + 1)->get();
 
         if ($products->count() > $limit) {
             return response()->json(['data' => [], 'categories' => [], 'too_large' => true]);

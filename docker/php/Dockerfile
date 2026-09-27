@@ -42,6 +42,7 @@ RUN groupadd -g ${GID} appgroup \
     && chown -R appuser:appgroup /var/www
 
 COPY docker/php/php.ini /usr/local/etc/php/conf.d/custom.ini
+COPY docker/php/zz-pool-overrides.conf /usr/local/etc/php-fpm.d/zz-pool-overrides.conf
 
 USER appuser
 

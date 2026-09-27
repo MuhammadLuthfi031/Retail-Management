@@ -33,7 +33,6 @@ Route::middleware(['auth', 'no-cache'])->group(function () {
 
     Route::get('/profile', [ProfileController::class, 'edit'])->name('profile.edit');
     Route::patch('/profile', [ProfileController::class, 'update'])->name('profile.update');
-    Route::delete('/profile', [ProfileController::class, 'destroy'])->name('profile.destroy');
 
     // === KASIR ===
     Route::middleware('role:admin,kasir')->prefix('kasir')->name('kasir.')->group(function () {

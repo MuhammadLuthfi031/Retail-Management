@@ -99,6 +99,40 @@ class KatalogTest extends TestCase
         $this->assertCount(3, $response->json('data'));
     }
 
+    /** @see PosController::katalog() mode 2 — refresh tertarget dipakai setelah checkout (temuan performa #3). */
+    public function test_catalog_with_ids_only_returns_the_requested_products(): void
+    {
+        $a = $this->makeProduct(['name' => 'A', 'stock' => 5]);
+        $b = $this->makeProduct(['name' => 'B', 'stock' => 7]);
+        $this->makeProduct(['name' => 'C', 'stock' => 9]); // TIDAK diminta -> tidak boleh ikut
+
+        $response = $this->actingAs(User::factory()->kasir()->create())
+            ->getJson(route('kasir.pos.katalog', ['ids' => "{$a->id},{$b->id}"]))
+            ->assertOk();
+
+        $names = collect($response->json('data'))->pluck('name')->all();
+        $this->assertEqualsCanonicalizing(['A', 'B'], $names);
+    }
+
+    public function test_catalog_with_ids_reflects_updated_stock_immediately(): void
+    {
+        $product = $this->makeProduct(['stock' => 10]);
+        // Pakai pecahan (bukan angka bulat) supaya test ini juga menguji
+        // dukungan kuantitas desimal untuk barang curah — bukan cuma
+        // int-vs-float kebetulan sama-sama valid untuk angka bulat.
+        $product->update(['stock' => 2.75]); // simulasi: baru saja berkurang karena penjualan
+
+        $response = $this->actingAs(User::factory()->kasir()->create())
+            ->getJson(route('kasir.pos.katalog', ['ids' => (string) $product->id]))
+            ->assertOk();
+
+        // assertEquals (bukan assertSame): json_encode/decode PHP bisa
+        // mengubalik-balikkan float bulat jadi int (mis. 3.0 -> teks JSON "3"
+        // -> int(3) saat di-decode ulang) — itu ciri json_encode, bukan bug
+        // aplikasi. Nilai pecahan di sini otomatis menghindari ambiguitas itu.
+        $this->assertEquals(2.75, $response->json('data.0.stock'));
+    }
+
     public function test_only_kasir_and_admin_may_load_the_catalog(): void
     {
         $this->katalog(User::factory()->kasir()->create())->assertOk();

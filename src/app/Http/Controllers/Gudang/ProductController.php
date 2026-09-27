@@ -301,12 +301,26 @@ class ProductController extends Controller
         if (count($barcodes) !== count(array_unique($barcodes))) {
             throw ValidationException::withMessages(['units' => 'Ada barcode yang sama dipakai di lebih dari satu satuan pada form ini.']);
         }
-        foreach ($barcodes as $index => $barcode) {
-            $exists = ProductUnit::where('barcode', $barcode)
-                ->when($units[$index]['id'] ?? null, fn ($q) => $q->where('id', '!=', $units[$index]['id']))
-                ->exists();
-            if ($exists) {
-                throw ValidationException::withMessages(['units' => "Barcode \"{$barcode}\" sudah dipakai produk/satuan lain."]);
+
+        if (! empty($barcodes)) {
+            // 1 query batch menggantikan query per-barcode di dalam loop (N+1)
+            // yang sebelumnya ada di sini (§5 temuan #6). Jumlah baris satuan
+            // per produk memang kecil (biasa 1-4), jadi dampaknya kecil, tapi
+            // pola ini tetap disamakan dengan konvensi batching yang sudah
+            // dipakai di syncUnits() (lihat catatan di bawah).
+            $conflicts = ProductUnit::whereIn('barcode', $barcodes)->get(['id', 'barcode']);
+
+            foreach ($units as $unit) {
+                if ($unit['barcode'] === null) {
+                    continue;
+                }
+
+                $unitId = (int) ($unit['id'] ?? 0); // 0 = baris baru, belum pernah punya id
+                $clash = $conflicts->first(fn ($c) => $c->barcode === $unit['barcode'] && (int) $c->id !== $unitId);
+
+                if ($clash) {
+                    throw ValidationException::withMessages(['units' => "Barcode \"{$unit['barcode']}\" sudah dipakai produk/satuan lain."]);
+                }
             }
         }
 
