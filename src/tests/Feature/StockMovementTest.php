@@ -4,6 +4,7 @@ namespace tests\Feature;
 
 use App\Models\StockMovement;
 use App\Models\User;
+use Illuminate\Database\Eloquent\MassAssignmentException;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Validation\ValidationException;
 use Tests\Support\BuildsRetailData;
@@ -172,5 +173,29 @@ class StockMovementTest extends TestCase
         $fresh = $product->fresh();
         $this->assertEquals(40.0, (float) $fresh->stock);
         $this->assertEquals(2250, $fresh->average_cost);
+    }
+
+    /**
+     * §QA-007: 'stock' sengaja dicabut dari $fillable — mass-assignment
+     * langsung (create/update dengan array) sekarang HARUS gagal eksplisit,
+     * bukan diam-diam diabaikan seperti perilaku default Laravel.
+     */
+    public function test_stock_cannot_be_mass_assigned_directly(): void
+    {
+        $product = $this->makeProduct(['stock' => 5]);
+
+        $this->expectException(MassAssignmentException::class);
+
+        $product->update(['stock' => 999]);
+    }
+
+    /** Guard di atas TIDAK boleh sampai mematahkan jalur sah StockMovement::record() sendiri. */
+    public function test_record_still_writes_stock_despite_the_guard(): void
+    {
+        $product = $this->makeProduct(['stock' => 5]);
+
+        StockMovement::record($product, 'in', 3, $this->user->id);
+
+        $this->assertEquals(8.0, (float) $product->fresh()->stock);
     }
 }

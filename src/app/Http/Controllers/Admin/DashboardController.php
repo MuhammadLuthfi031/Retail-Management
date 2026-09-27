@@ -24,7 +24,11 @@ class DashboardController extends Controller
     {
         $days = in_array((int) $request->query('days'), [7, 30], true) ? (int) $request->query('days') : 7;
         $from = Carbon::today()->subDays($days - 1);
-        $to = Carbon::today();
+        // endOfDay() — BUKAN sekadar Carbon::today() (=00:00:00) — supaya
+        // whereBetween() di 3 method grafik di bawah tidak kehilangan
+        // transaksi hari ini yang timestamp-nya sudah lewat tengah malam
+        // (lihat §QA-006 & test regresinya, DashboardTest).
+        $to = Carbon::today()->endOfDay();
 
         return view('admin.dashboard', [
             'days' => $days,
@@ -63,8 +67,7 @@ class DashboardController extends Controller
     private function grafikPenjualan(Carbon $from, Carbon $to): array
     {
         $rows = Transaction::where('status', 'completed')
-            ->whereDate('created_at', '>=', $from)
-            ->whereDate('created_at', '<=', $to)
+            ->whereBetween('created_at', [$from, $to])
             ->selectRaw('DATE(created_at) as tanggal, SUM(grand_total) as total')
             ->groupBy('tanggal')
             ->get();
@@ -90,8 +93,7 @@ class DashboardController extends Controller
         $rows = PurchaseOrderItem::query()
             ->whereNotNull('received_at')
             ->where('quantity_received', '>', 0)
-            ->whereDate('received_at', '>=', $from)
-            ->whereDate('received_at', '<=', $to)
+            ->whereBetween('received_at', [$from, $to])
             ->selectRaw('DATE(received_at) as tanggal, SUM(quantity_received * unit_price) as total')
             ->groupBy('tanggal')
             ->get();
@@ -121,8 +123,7 @@ class DashboardController extends Controller
         return TransactionDetail::query()
             ->join('transactions', 'transactions.id', '=', 'transaction_details.transaction_id')
             ->where('transactions.status', 'completed')
-            ->whereDate('transactions.created_at', '>=', $from)
-            ->whereDate('transactions.created_at', '<=', $to)
+            ->whereBetween('transactions.created_at', [$from, $to])
             ->selectRaw('transaction_details.product_name, SUM(transaction_details.subtotal) as total_omzet, SUM(transaction_details.quantity) as total_qty')
             ->groupBy('transaction_details.product_name')
             ->orderByDesc('total_omzet')

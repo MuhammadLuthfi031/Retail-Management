@@ -32,6 +32,16 @@ class AppServiceProvider extends ServiceProvider
         // (walau lebih lambat) daripada layar error putih.
         Model::preventLazyLoading(! app()->isProduction());
 
+        // Mass-assignment ke atribut non-fillable (mis. Product::create(['stock'
+        // => ...]) setelah 'stock' sengaja dicabut dari fillable, §QA-007) akan
+        // GAGAL EKSPLISIT (MassAssignmentException) alih-alih diam-diam
+        // diabaikan seperti perilaku default Laravel. Sama seperti
+        // preventLazyLoading di atas: mati di production supaya kalau ada
+        // kasus lolos tak terduga, user tokonya tetap dapat halaman yang
+        // jalan (walau field itu diam-diam tidak tersimpan) daripada layar
+        // error putih — tapi KETAHUAN LANGSUNG saat development/testing.
+        Model::preventSilentlyDiscardingAttributes(! app()->isProduction());
+
         // Default bawaan Laravel untuk middleware 'guest' (dipakai di /login,
         // /forgot-password, dll — lihat routes/auth.php) akan redirect user
         // yang SUDAH login ke route('dashboard') kalau route itu ada — dan di

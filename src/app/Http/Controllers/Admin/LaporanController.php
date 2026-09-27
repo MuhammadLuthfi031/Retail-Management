@@ -226,9 +226,24 @@ class LaporanController extends Controller
 
     // === Helper ===
 
-    /** @return array{0: Carbon, 1: Carbon} */
+    /**
+     * @return array{0: Carbon, 1: Carbon}
+     *
+     * Titik tunggal parsing rentang tanggal untuk semua method Laporan
+     * (penjualan/labaRugi/stok x HTML+PDF = 6 titik masuk). Divalidasi DI SINI
+     * — bukan di tiap method publik — supaya 1 perbaikan menutup semuanya
+     * sekaligus (§QA-003). Sebelumnya Carbon::parse() dipanggil langsung ke
+     * input mentah: string yang tidak bisa di-parse melempar
+     * InvalidFormatException yang tidak ditangkap -> HTTP 500 generik, bukan
+     * pesan validasi yang jelas.
+     */
     private function resolveDateRange(Request $request, Carbon $defaultFrom, Carbon $defaultTo): array
     {
+        $request->validate([
+            'from' => ['nullable', 'date_format:Y-m-d'],
+            'to' => ['nullable', 'date_format:Y-m-d'],
+        ]);
+
         $from = $request->filled('from') ? Carbon::parse($request->from)->startOfDay() : $defaultFrom;
         $to = $request->filled('to') ? Carbon::parse($request->to)->endOfDay() : $defaultTo;
 

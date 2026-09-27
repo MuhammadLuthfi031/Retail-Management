@@ -17,7 +17,14 @@ class Product extends Model
         'tracking_mode',
         'name',
         'sku',
-        'stock',
+        // 'stock' SENGAJA TIDAK fillable (§QA-007) — satu-satunya jalur sah
+        // untuk mengubah stok adalah StockMovement::record(), yang menulisnya
+        // lewat assignment atribut langsung ($product->stock = ...), BUKAN
+        // mass-assignment. Kalau ada kode baru mencoba
+        // Product::create(['stock' => ...]) atau $product->update(['stock' =>
+        // ...]) langsung, itu akan gagal EKSPLISIT (lihat
+        // Model::preventSilentlyDiscardingAttributes() di AppServiceProvider)
+        // alih-alih lolos diam-diam tanpa tercatat di stock_movements.
         'min_stock',
         'average_cost',
         'allow_fractional_sale',

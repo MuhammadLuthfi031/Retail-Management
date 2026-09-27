@@ -134,17 +134,22 @@ class StockMovement extends Model
                 'note' => $note,
             ]);
 
-            $updateData = ['stock' => $stockAfter];
+            // Assignment atribut LANGSUNG ($locked->stock = ...), BUKAN
+            // $locked->update(['stock' => ...]) — 'stock' sengaja tidak
+            // fillable (§QA-007), dan ini SATU-SATUNYA tempat yang boleh
+            // menulisnya. Tetap 1 query UPDATE saja (Eloquent gabung semua
+            // atribut yang "dirty" jadi satu SQL saat save() dipanggil).
+            $locked->stock = $stockAfter;
 
             // Hitung ulang harga pokok rata-rata HANYA kalau ini stok masuk dengan info harga.
             // $costBasis WAJIB pakai $totalCost (exact) kalau caller mengirimnya — lihat
             // docblock parameter di atas soal kenapa ini bukan sekadar unitCost x quantity.
             if ($type === 'in' && $unitCost !== null) {
                 $costBasis = $totalCost ?? ($unitCost * $absQuantity);
-                $updateData['average_cost'] = $locked->recalculateAverageCost($absQuantity, $costBasis);
+                $locked->average_cost = $locked->recalculateAverageCost($absQuantity, $costBasis);
             }
 
-            $locked->update($updateData);
+            $locked->save();
 
             // Sinkronkan balik ke instance $product yang dipegang caller (bukan
             // $locked yang cuma lokal di sini), supaya kode SETELAH pemanggilan
