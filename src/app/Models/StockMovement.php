@@ -134,20 +134,29 @@ class StockMovement extends Model
                 'note' => $note,
             ]);
 
+            // Hitung ulang harga pokok rata-rata HANYA kalau ini stok masuk dengan info harga.
+            // $costBasis WAJIB pakai $totalCost (exact) kalau caller mengirimnya — lihat
+            // docblock parameter di atas soal kenapa ini bukan sekadar unitCost x quantity.
+            //
+            // URUTAN PENTING: blok ini HARUS jalan SEBELUM `$locked->stock` diubah di
+            // bawah. recalculateAverageCost() membaca `$this->stock` sebagai "stok LAMA"
+            // (sebelum batch ini masuk). Kalau stok sudah dinaikkan lebih dulu, batch
+            // yang baru masuk ikut terhitung sebagai stok lama dan rata-ratanya salah
+            // (mis. stok awal 0 + 10 unit @Rp 10.000 tercatat Rp 500/unit, bukan Rp 1.000).
+            // Dulu aman karena update() baru menulis di akhir; saat diganti assignment
+            // langsung (§QA-007) urutan ini ikut bergeser dan ketahuan oleh
+            // StockMovementTest — jangan dibalik lagi.
+            if ($type === 'in' && $unitCost !== null) {
+                $costBasis = $totalCost ?? ($unitCost * $absQuantity);
+                $locked->average_cost = $locked->recalculateAverageCost($absQuantity, $costBasis);
+            }
+
             // Assignment atribut LANGSUNG ($locked->stock = ...), BUKAN
             // $locked->update(['stock' => ...]) — 'stock' sengaja tidak
             // fillable (§QA-007), dan ini SATU-SATUNYA tempat yang boleh
             // menulisnya. Tetap 1 query UPDATE saja (Eloquent gabung semua
             // atribut yang "dirty" jadi satu SQL saat save() dipanggil).
             $locked->stock = $stockAfter;
-
-            // Hitung ulang harga pokok rata-rata HANYA kalau ini stok masuk dengan info harga.
-            // $costBasis WAJIB pakai $totalCost (exact) kalau caller mengirimnya — lihat
-            // docblock parameter di atas soal kenapa ini bukan sekadar unitCost x quantity.
-            if ($type === 'in' && $unitCost !== null) {
-                $costBasis = $totalCost ?? ($unitCost * $absQuantity);
-                $locked->average_cost = $locked->recalculateAverageCost($absQuantity, $costBasis);
-            }
 
             $locked->save();
 

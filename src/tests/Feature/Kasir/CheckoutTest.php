@@ -9,6 +9,7 @@ use App\Models\TransactionDetail;
 use App\Models\User;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Carbon;
+use Illuminate\Support\Str;
 use Illuminate\Testing\TestResponse;
 use Tests\Support\BuildsRetailData;
 use Tests\TestCase;
@@ -54,6 +55,9 @@ class CheckoutTest extends TestCase
     private function checkout(array $items, array $extra = [], ?User $as = null): TestResponse
     {
         return $this->actingAs($as ?? $this->kasir)->postJson(route('kasir.pos.checkout'), array_merge([
+            // Key baru tiap panggilan = tiap panggilan adalah penjualan baru
+            // (QA-002). Test retry dengan key yang sama ada di CheckoutIdempotencyTest.
+            'idempotency_key' => (string) Str::uuid(),
             'items' => $items,
             'payment_method' => 'cash',
             'paid_amount' => 1000000,

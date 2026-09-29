@@ -76,8 +76,11 @@ class ProfileTest extends TestCase
             ->actingAs($user)
             ->delete('/profile', ['password' => 'password']);
 
-        $response->assertStatus(404);
-        $this->assertNotNull($user->fresh(), 'User tidak boleh terhapus — route ini seharusnya sudah tidak ada.');
+        // 405, bukan 404: URL /profile masih ada untuk GET (edit) & PATCH
+        // (update), yang tidak ada hanya method DELETE-nya. Kalau handler
+        // hapus-akun dipasang lagi, respons berubah jadi redirect dan test ini gagal.
+        $response->assertStatus(405);
+        $this->assertNotNull($user->fresh(), 'User tidak boleh terhapus — route DELETE ini seharusnya sudah tidak ada.');
     }
 
     public function test_delete_account_section_is_not_rendered_on_profile_page(): void

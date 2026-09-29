@@ -2,6 +2,7 @@
 
 namespace Tests\Feature\Kasir;
 
+use App\Models\StockMovement;
 use App\Models\User;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Tests\Support\BuildsRetailData;
@@ -116,13 +117,16 @@ class KatalogTest extends TestCase
 
     public function test_catalog_with_ids_reflects_updated_stock_immediately(): void
     {
+        $kasir = User::factory()->kasir()->create();
         $product = $this->makeProduct(['stock' => 10]);
         // Pakai pecahan (bukan angka bulat) supaya test ini juga menguji
         // dukungan kuantitas desimal untuk barang curah — bukan cuma
         // int-vs-float kebetulan sama-sama valid untuk angka bulat.
-        $product->update(['stock' => 2.75]); // simulasi: baru saja berkurang karena penjualan
+        // Stok berkurang lewat StockMovement::record() — satu-satunya jalur
+        // sah ubah stok (§QA-007), sama seperti penjualan sungguhan: 10 - 7,25 = 2,75.
+        StockMovement::record($product, 'sale', 7.25, $kasir->id);
 
-        $response = $this->actingAs(User::factory()->kasir()->create())
+        $response = $this->actingAs($kasir)
             ->getJson(route('kasir.pos.katalog', ['ids' => (string) $product->id]))
             ->assertOk();
 

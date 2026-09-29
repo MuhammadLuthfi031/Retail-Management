@@ -1,4 +1,5 @@
 import { Html5Qrcode } from 'html5-qrcode';
+import { generateIdempotencyKey } from './idempotency-key';
 
 /**
  * Modul Kasir (POS) — Tahap 1: pencarian produk (nama/SKU/scan) & keranjang
@@ -33,6 +34,19 @@ document.addEventListener('DOMContentLoaded', function () {
     let cart = [];
     let cartLineSeq = 0;
     let hasStockIssue = false;
+
+    /**
+     * QA-002: kunci anti-duplikat untuk PERCOBAAN checkout yang sedang
+     * berjalan. Dibuat SEKALI di openPaymentModal(), lalu dikirim ulang apa
+     * adanya di setiap klik "Proses Transaksi" selama modal yang sama masih
+     * terbuka — termasuk retry setelah network error, ganti metode bayar,
+     * atau harga ditolak (409). Server memakainya untuk mengenali retry dan
+     * membalas dengan transaksi yang sudah ada, bukan menyimpan penjualan
+     * kedua. Dikosongkan begitu transaksi berhasil, supaya tidak pernah
+     * terbawa ke penjualan berikutnya.
+     * @type {string|null}
+     */
+    let paymentIdempotencyKey = null;
 
     // ===================== Helper umum =====================
 
@@ -373,6 +387,12 @@ document.addEventListener('DOMContentLoaded', function () {
     });
 
     function openPaymentModal() {
+        // Satu key per PERCOBAAN checkout: dibuat di sini (modal dibuka),
+        // BUKAN di submitCheckout() (itu per klik — justru merusak tujuannya)
+        // dan BUKAN di renderPaymentContent() (dipanggil ulang saat ganti
+        // metode bayar / setelah 409, key harus tetap sama di situ).
+        paymentIdempotencyKey = generateIdempotencyKey();
+
         const totals = computeCartTotals();
         renderPaymentContent(totals, 'cash', totals.grandTotal);
         openModalByName('pos-payment');
@@ -509,6 +529,7 @@ document.addEventListener('DOMContentLoaded', function () {
         renderCart(); // supaya notice lama langsung hilang dari panel keranjang, tidak menunggu render berikutnya
 
         const payload = {
+            idempotency_key: paymentIdempotencyKey,
             payment_method: paymentMethod,
             paid_amount: Math.round(paidAmount),
             items: cart.map((l) => ({
@@ -571,7 +592,11 @@ document.addEventListener('DOMContentLoaded', function () {
                 renderCart(); // refresh, kalau-kalau ini gara-gara stok berubah
             }
         } catch (err) {
-            errorEl.textContent = 'Tidak bisa terhubung ke server. Cek koneksi lalu coba lagi.';
+            // Request mungkin SUDAH sampai & tersimpan di server walau balasannya
+            // hilang. Menekan tombol lagi di modal yang sama aman (key sama ->
+            // server membalas transaksi yang sudah ada, tidak tercatat dobel),
+            // tapi menutup modal lalu mengulang dari awal = key baru = bisa dobel.
+            errorEl.textContent = 'Tidak bisa terhubung ke server. Cek koneksi lalu tekan "Proses Transaksi" lagi — aman, tidak akan tercatat dobel. Jangan tutup jendela ini dulu.';
             errorEl.classList.remove('hidden');
             submitBtn.disabled = false;
             submitBtn.textContent = 'Proses Transaksi';
@@ -606,6 +631,9 @@ document.addEventListener('DOMContentLoaded', function () {
     }
 
     function showTransactionSuccess(data) {
+        // Penjualan ini SELESAI — key-nya tidak boleh terbawa ke penjualan berikutnya.
+        paymentIdempotencyKey = null;
+
         // Refresh TERTARGET: cuma produk yang baris-barisnya baru saja terjual
         // (bukan reload SELURUH katalog aktif — lihat catatan di
         // PosController::katalog() & §5 temuan #3). `cart` MASIH berisi baris

@@ -8,6 +8,7 @@ use App\Models\Transaction;
 use App\Models\TransactionDetail;
 use App\Models\User;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Support\Str;
 use Illuminate\Testing\TestResponse;
 use Tests\Support\BuildsRetailData;
 use Tests\TestCase;
@@ -39,6 +40,8 @@ class CheckoutPriceMismatchTest extends TestCase
     private function checkout(array $items, array $extra = []): TestResponse
     {
         return $this->actingAs($this->kasir)->postJson(route('kasir.pos.checkout'), array_merge([
+            // Key baru tiap panggilan = tiap panggilan adalah penjualan baru (QA-002).
+            'idempotency_key' => (string) Str::uuid(),
             'items' => $items,
             'payment_method' => 'cash',
             'paid_amount' => 1000000,

@@ -13,6 +13,7 @@ class Transaction extends Model
 
     protected $fillable = [
         'invoice_number',
+        'idempotency_key',   // QA-002: kunci anti-duplikat checkout, lihat PosController::checkout()
         'user_id',
         'total_amount',
         'discount_amount',

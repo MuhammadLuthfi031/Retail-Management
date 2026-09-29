@@ -58,6 +58,14 @@ class PurchaseOrderController extends Controller
             ]);
 
             foreach ($items as $item) {
+                // 'id' SELALU ada di setiap baris dari extractItems() (dipakai
+                // update() untuk membedakan item lama/baru — lihat method itu),
+                // tapi di sini PO-nya baru dibuat, jadi tidak ada item lama sama
+                // sekali. 'id' bukan fillable (primary key), jadi WAJIB dibuang
+                // dulu sebelum create() — kalau tidak, create() gagal keras
+                // dengan MassAssignmentException (preventSilentlyDiscardingAttributes,
+                // §QA-007), walau isinya cuma null.
+                unset($item['id']);
                 $po->items()->create($item);
             }
 

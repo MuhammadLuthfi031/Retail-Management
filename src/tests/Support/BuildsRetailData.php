@@ -5,6 +5,8 @@ namespace Tests\Support;
 use App\Models\Category;
 use App\Models\Product;
 use App\Models\ProductUnit;
+use App\Models\Transaction;
+use App\Models\TransactionDetail;
 use App\Models\User;
 use Illuminate\Support\Str;
 
@@ -85,5 +87,64 @@ trait BuildsRetailData
         $id = $product instanceof Product ? $product->id : $product;
 
         return (float) Product::query()->whereKey($id)->value('stock');
+    }
+
+    /**
+     * Transaksi (+ opsional baris transaction_details) dengan angka yang
+     * SENGAJA dikontrol penuh — dipakai test korektivitas Laporan (QA-004).
+     * Sengaja BUKAN lewat alur checkout sungguhan (mekanisme checkout itu
+     * sendiri sudah dijaga CheckoutTest/CheckoutIdempotencyTest terpisah) —
+     * di sini yang diuji murni rumus agregasi LaporanController.
+     *
+     * forceCreate() supaya `created_at` bisa di-backdate (perlu utk menguji
+     * batas rentang tanggal filter) dan `status` bisa diisi selain
+     * 'completed' (perlu utk menguji laporan MENGECUALIKAN transaksi
+     * batal/refund — lihat catatan di migration transactions: enum status
+     * sudah menyiapkan 'refunded'/'cancelled' walau fitur void §7.5 belum
+     * ada UI-nya).
+     *
+     * @param  array<int, array<string, mixed>>  $items  baris transaction_details, tiap baris di-merge di atas default di bawah.
+     */
+    protected function makeTransaction(array $attributes = [], array $items = []): Transaction
+    {
+        $n = ++$this->retailSeq;
+
+        $transaction = Transaction::forceCreate(array_merge([
+            'invoice_number' => sprintf('TST-INV-%05d', $n),
+            'idempotency_key' => (string) Str::uuid(),
+            'user_id' => User::factory()->kasir()->create()->id,
+            'total_amount' => 0,
+            'discount_amount' => 0,
+            'grand_total' => 0,
+            'paid_amount' => 0,
+            'change_amount' => 0,
+            'payment_method' => 'cash',
+            'status' => 'completed',
+        ], $attributes));
+
+        foreach ($items as $item) {
+            // product_id adalah foreign key NOT NULL (lihat migration) — kalau
+            // pemanggil tidak menyebutkan produk sendiri, buatkan satu di sini
+            // supaya default tetap valid tanpa tiap test harus urus produk.
+            $productId = $item['product_id'] ?? $this->makeProduct()->id;
+            unset($item['product_id']); // supaya array_merge di bawah tidak menimpanya balik
+
+            TransactionDetail::forceCreate(array_merge([
+                'transaction_id' => $transaction->id,
+                'product_id' => $productId,
+                'product_name' => 'Item Uji',
+                'unit_name' => 'unit',
+                'unit_conversion' => 1,
+                'price' => 0,
+                // null = simulasikan baris data LAMA (sebelum kolom unit_cost
+                // ada) kalau tidak diisi eksplisit oleh pemanggil.
+                'unit_cost' => null,
+                'discount_amount' => 0,
+                'quantity' => 1,
+                'subtotal' => 0,
+            ], $item));
+        }
+
+        return $transaction->fresh();
     }
 }

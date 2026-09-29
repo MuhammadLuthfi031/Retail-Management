@@ -9,6 +9,7 @@ use App\Models\Product;
 use App\Models\ProductUnit;
 use App\Models\StockMovement;
 use App\Models\Transaction;
+use Illuminate\Database\QueryException;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
@@ -232,10 +233,26 @@ class PosController extends Controller
      * Kalau salah satu baris gagal (stok kurang, satuan tidak boleh dijual,
      * dll), SELURUH transaksi dibatalkan (DB::transaction rollback) — tidak
      * ada skenario "separuh item berhasil separuh gagal".
+     *
+     * IDEMPOTENT (QA-002): client mengirim `idempotency_key` (UUID v4 yang
+     * dibuat sekali per percobaan checkout). Kalau request yang membawa key
+     * yang sama datang lagi — mis. kasir klik ulang setelah timeout jaringan
+     * padahal request pertama SUDAH commit di server — server membalas
+     * dengan transaksi yang sudah ada (HTTP 200), BUKAN memproses ulang
+     * keranjang. Stok tidak dipotong lagi, omzet tidak dobel. Tiga lapis:
+     *  1) cek cepat di sini, sebelum proses apa pun (kasus paling umum);
+     *  2) cek ulang di processCheckout() tepat setelah lock baris satuan;
+     *  3) constraint unique di DB + tangkap error-nya (jaring terakhir).
+     * Balasan replay mengabaikan isi keranjang di request kedua — yang
+     * berlaku selalu hasil request pertama (kontrak idempotency standar).
      */
     public function checkout(Request $request): JsonResponse
     {
         $validated = $request->validate([
+            // WAJIB (QA-002): dibuat kasir-pos.js sekali per percobaan checkout
+            // (saat modal pembayaran dibuka). Tanpa ini server tidak bisa
+            // membedakan "penjualan baru" dari "klik ulang setelah timeout".
+            'idempotency_key' => ['required', 'uuid'],
             'items' => ['required', 'array', 'min:1'],
             'items.*.product_id' => ['required', 'integer'],
             'items.*.unit_id' => ['required', 'integer'],
@@ -251,7 +268,24 @@ class PosController extends Controller
             'items.*.expected_price' => ['nullable', 'integer', 'min:0'],
             'payment_method' => ['required', 'in:cash,debit,qris,transfer'],
             'paid_amount' => ['required', 'integer', 'min:0'],
+        ], [
+            // Pemicu paling mungkin: tab POS yang dibuka SEBELUM update ini dan
+            // belum di-refresh (JS lamanya belum mengirim key). Pesan ini
+            // ditampilkan apa adanya oleh kasir-pos.js, jadi harus bisa
+            // langsung dipahami kasir.
+            'idempotency_key.required' => 'Sesi pembayaran tidak valid. Muat ulang halaman POS lalu coba lagi.',
+            'idempotency_key.uuid' => 'Sesi pembayaran tidak valid. Muat ulang halaman POS lalu coba lagi.',
         ]);
+
+        // Normalisasi huruf kecil: rule `uuid` menerima huruf besar, sementara
+        // perbandingan unique di DB belum tentu case-insensitive di semua
+        // engine — satu bentuk kanonik menghindari "key sama tapi dianggap beda".
+        $validated['idempotency_key'] = strtolower($validated['idempotency_key']);
+
+        // Lapis 1: pengulangan permintaan yang sudah pernah sukses.
+        if ($replay = $this->findOwnTransactionByKey($validated['idempotency_key'])) {
+            return $this->transactionResponse($replay);
+        }
 
         try {
             $transaction = DB::transaction(fn () => $this->processCheckout($validated));
@@ -265,8 +299,21 @@ class PosController extends Controller
             ], 409);
         }
 
+        return $this->transactionResponse($transaction);
+    }
+
+    /**
+     * Bentuk JSON SATU-SATUNYA untuk hasil checkout — dipakai transaksi baru
+     * DAN balasan replay, jadi client (kasir-pos.js) tidak perlu membedakan
+     * keduanya. Bedanya cuma status HTTP: 201 = baru dibuat, 200 = sudah ada
+     * (`wasRecentlyCreated` true hanya untuk model yang dibuat di request ini).
+     */
+    private function transactionResponse(Transaction $transaction): JsonResponse
+    {
+        $created = $transaction->wasRecentlyCreated;
+
         return response()->json([
-            'message' => 'Transaksi berhasil disimpan.',
+            'message' => $created ? 'Transaksi berhasil disimpan.' : 'Transaksi ini sudah tersimpan sebelumnya.',
             'data' => [
                 'id' => $transaction->id,
                 'invoice_number' => $transaction->invoice_number,
@@ -278,7 +325,21 @@ class PosController extends Controller
                 'payment_method' => $transaction->payment_method,
                 'created_at' => $transaction->created_at->toIso8601String(),
             ],
-        ], 201);
+        ], $created ? 201 : 200);
+    }
+
+    /**
+     * Transaksi yang sudah ada untuk `idempotency_key` ini MILIK KASIR YANG
+     * SAMA. Sengaja dibatasi per user: kalau key kebetulan (atau sengaja)
+     * sama dengan milik kasir lain, data transaksi orang lain TIDAK boleh
+     * bocor lewat balasan replay — di kasus itu fungsi ini mengembalikan
+     * null dan alur normal berjalan sampai lapis 3 (menolak dengan 422).
+     */
+    private function findOwnTransactionByKey(string $key): ?Transaction
+    {
+        return Transaction::where('idempotency_key', $key)
+            ->where('user_id', auth()->id())
+            ->first();
     }
 
     /**
@@ -305,6 +366,18 @@ class PosController extends Controller
         // di bawah aman (savepoint bersarang, koneksi & lock yang sama).
         $unitIds = collect($validated['items'])->pluck('unit_id')->unique();
         $units = ProductUnit::with('product')->lockForUpdate()->whereIn('id', $unitIds)->orderBy('id')->get()->keyBy('id');
+
+        // Lapis 2 (QA-002): cek ulang key TEPAT SETELAH lock di atas didapat.
+        // Dua request dengan key yang sama = keranjang yang sama = baris
+        // product_units yang sama, jadi request kedua ANTRE di lock request
+        // pertama sampai commit — begitu lock terlepas, transaksi request
+        // pertama sudah terlihat di sini dan kita cukup mengembalikannya.
+        // Sengaja BUKAN lockForUpdate() pada pencarian key: di key yang belum
+        // ada, itu mengambil gap lock di index unique dan bisa membuat 2
+        // checkout berbeda saling deadlock saat sama-sama INSERT.
+        if ($replay = $this->findOwnTransactionByKey($validated['idempotency_key'])) {
+            return $replay;
+        }
 
         foreach ($validated['items'] as $item) {
             $unit = $units->get($item['unit_id']);
@@ -387,16 +460,51 @@ class PosController extends Controller
         $paidAmount = $isCash ? $validated['paid_amount'] : $grandTotal;
         $changeAmount = $isCash ? $paidAmount - $grandTotal : 0;
 
-        $transaction = Transaction::createWithUniqueInvoice([
-            'user_id' => auth()->id(),
-            'total_amount' => $totalAmount,
-            'discount_amount' => $totalDiscount,
-            'grand_total' => $grandTotal,
-            'paid_amount' => $paidAmount,
-            'change_amount' => $changeAmount,
-            'payment_method' => $validated['payment_method'],
-            'status' => 'completed',
-        ]);
+        try {
+            $transaction = Transaction::createWithUniqueInvoice([
+                'idempotency_key' => $validated['idempotency_key'],
+                'user_id' => auth()->id(),
+                'total_amount' => $totalAmount,
+                'discount_amount' => $totalDiscount,
+                'grand_total' => $grandTotal,
+                'paid_amount' => $paidAmount,
+                'change_amount' => $changeAmount,
+                'payment_method' => $validated['payment_method'],
+                'status' => 'completed',
+            ]);
+        } catch (QueryException $e) {
+            // Lapis 3 (QA-002): jaring terakhir kalau lapis 1 & 2 terlewat dan
+            // constraint unique idempotency_key menolak INSERT ini (request
+            // lain dengan key sama baru saja commit). Stok BELUM disentuh di
+            // titik ini (StockMovement::record di bawah), jadi aman kembali.
+            // Catatan: createWithUniqueInvoice() mengulang sampai 3x untuk
+            // dugaan bentrok invoice_number sebelum melempar error ini —
+            // boros, tapi hanya di skenario race yang sangat jarang.
+            if ($e->getCode() !== '23000') {
+                throw $e;
+            }
+
+            // sharedLock (bukan snapshot biasa): harus melihat baris yang
+            // BARU commit walau transaksi kita sudah punya snapshot lama.
+            // Baris ini pasti ada (baru saja memicu duplikat), jadi tidak
+            // ada gap lock.
+            $existing = Transaction::where('idempotency_key', $validated['idempotency_key'])
+                ->sharedLock()
+                ->first();
+
+            if (! $existing) {
+                throw $e; // bukan gara-gara key kita — biarkan naik seperti sebelumnya
+            }
+
+            if ((int) $existing->user_id !== (int) auth()->id()) {
+                // Key milik kasir lain: jangan bocorkan datanya, tolak jelas.
+                throw ValidationException::withMessages([
+                    'idempotency_key' => 'Kode transaksi ini sudah dipakai. Muat ulang halaman POS lalu coba lagi.',
+                ]);
+            }
+
+            return $existing;
+        }
 
         foreach ($lines as $line) {
             // Kuantitas jual (dalam satuan yang dipilih kasir) WAJIB
