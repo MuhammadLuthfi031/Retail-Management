@@ -108,10 +108,29 @@ class PurchaseOrderController extends Controller
 
                 if ($id) {
                     $poItem = $existingItems->get($id);
-                    $poItem?->update($item);
-                    if ($poItem) {
-                        $keepIds[] = $poItem->id;
+
+                    // $id ada TAPI tidak ditemukan di scope PO INI (§QA-004,
+                    // ditemukan lewat test korektivitas) — bisa karena item
+                    // itu sudah dihapus admin lain di tab berbeda (form
+                    // basi), atau form di-tamper mengirim id milik PO LAIN.
+                    // WAJIB ditolak DI SINI, bukan diam-diam dilewati:
+                    // subtotal baris ini SUDAH KEBURU ikut dijumlahkan ke
+                    // total_amount di atas (dihitung dari $items MENTAH,
+                    // sebelum loop ini tahu baris mana yang beneran valid),
+                    // padahal baris itu sendiri tidak pernah tersimpan —
+                    // total_amount jadi lebih besar dari SUM(subtotal) item
+                    // yang sungguhan ada. Melempar di sini membatalkan
+                    // SELURUH transaksi (termasuk total_amount di atas),
+                    // jadi PO tidak pernah tersimpan dalam keadaan angkanya
+                    // sudah pasti tidak sinkron dengan isinya sendiri.
+                    if (! $poItem) {
+                        throw ValidationException::withMessages([
+                            'items' => 'Salah satu item yang diedit sudah tidak ada lagi di PO ini (mungkin baru saja diubah di sesi lain). Muat ulang halaman lalu coba lagi.',
+                        ]);
                     }
+
+                    $poItem->update($item);
+                    $keepIds[] = $poItem->id;
                 } else {
                     $keepIds[] = $pembelian->items()->create($item)->id;
                 }

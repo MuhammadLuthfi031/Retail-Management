@@ -5,6 +5,9 @@ namespace Tests\Support;
 use App\Models\Category;
 use App\Models\Product;
 use App\Models\ProductUnit;
+use App\Models\PurchaseOrder;
+use App\Models\PurchaseOrderItem;
+use App\Models\Supplier;
 use App\Models\Transaction;
 use App\Models\TransactionDetail;
 use App\Models\User;
@@ -146,5 +149,62 @@ trait BuildsRetailData
         }
 
         return $transaction->fresh();
+    }
+
+    /**
+     * PO uji (+ opsional item) dibuat LANGSUNG lewat model — dipakai test
+     * korektivitas status PO/pembayaran/penerimaan (QA-004) yang butuh PO
+     * dalam status tertentu (mis. 'ordered') tanpa mesti melalui seluruh
+     * alur form store(). Alur store()/update() SUNGGUHAN (termasuk
+     * extractItems()) sudah diuji terpisah lewat request HTTP asli di
+     * PurchaseOrderStoreTest/PurchaseOrderUpdateTest — helper ini tidak
+     * menggantikan itu, cuma bikin fixture untuk test LAIN.
+     *
+     * Tidak perlu forceCreate() — semua kolom yang dipakai di sini memang
+     * $fillable (beda dengan Product::stock/Transaction, lihat helper lain
+     * di trait ini).
+     *
+     * @param  array<int, array<string, mixed>>  $items  tiap baris boleh berisi 'product' (instance Product, default: produk baru) dan 'unit' (instance ProductUnit, default: satuan pembelian produk itu), sisanya di-merge di atas default (pesan 10, harga 11.000, subtotal 110.000).
+     */
+    protected function makePurchaseOrder(array $attributes = [], array $items = []): PurchaseOrder
+    {
+        $n = ++$this->retailSeq;
+
+        $po = PurchaseOrder::create(array_merge([
+            'po_number' => sprintf('TST-PO-%05d', $n),
+            'supplier_id' => Supplier::create(['name' => "Supplier Uji {$n}"])->id,
+            'created_by' => User::factory()->admin()->create()->id,
+            'order_date' => now()->toDateString(),
+            'expected_date' => now()->addDay()->toDateString(),
+            'status' => 'draft',
+            'payment_status' => 'unpaid',
+            'total_amount' => 0,
+        ], $attributes));
+
+        foreach ($items as $item) {
+            $product = $item['product'] ?? $this->makeProduct();
+            $unit = $item['unit'] ?? $product->units->firstWhere('is_purchase_unit', true) ?? $product->units->first();
+            unset($item['product'], $item['unit']);
+
+            PurchaseOrderItem::create(array_merge([
+                'purchase_order_id' => $po->id,
+                'product_id' => $product->id,
+                'product_unit_id' => $unit->id,
+                'quantity_ordered' => 10,
+                'quantity_received' => 0,
+                'unit_price' => 11000,
+                'subtotal' => 110000,
+            ], $item));
+        }
+
+        // total_amount PO SEHARUSNYA selalu SUM(subtotal) itemnya — jaga
+        // fixture tetap konsisten dengan invarian itu sejak dibuat, KECUALI
+        // pemanggil memang sengaja mengisi total_amount sendiri (test yang
+        // justru mau membuktikan angka itu dihitung ULANG oleh server).
+        if ($items !== [] && ! array_key_exists('total_amount', $attributes)) {
+            $po->update(['total_amount' => $po->items()->sum('subtotal')]);
+        }
+
+        return $po->fresh('items');
     }
 }
