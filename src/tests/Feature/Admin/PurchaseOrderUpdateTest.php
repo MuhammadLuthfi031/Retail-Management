@@ -161,4 +161,30 @@ class PurchaseOrderUpdateTest extends TestCase
         ], ['supplier_id' => Supplier::max('id') + 999])
             ->assertSessionHasErrors('supplier_id');
     }
+
+    public function test_update_tanpa_item_valid_ditolak_dan_tidak_mengubah_apa_pun(): void
+    {
+        $product = $this->makeProduct();
+        $po = $this->makePurchaseOrder(['status' => 'draft', 'note' => 'catatan asli'], [['product' => $product]]);
+        $item = $po->items->first();
+
+        // Tiga bentuk "tidak ada item valid": array kosong, baris qty 0, baris tanpa produk.
+        $kasus = [
+            [],
+            [['product_id' => $product->id, 'product_unit_id' => $item->product_unit_id, 'quantity_ordered' => 0, 'unit_price' => 1000]],
+            [['product_id' => '', 'product_unit_id' => '', 'quantity_ordered' => 5, 'unit_price' => 1000]],
+        ];
+
+        foreach ($kasus as $items) {
+            $this->update($po, $items, ['note' => 'catatan DIUBAH'])
+                ->assertSessionHasErrors('items');
+        }
+
+        // Header (note) pun tidak ikut berubah, dan item lama tetap utuh —
+        // PO tidak pernah berakhir kosong lewat jalur edit.
+        $this->assertSame('catatan asli', $po->fresh()->note);
+        $this->assertSame(110000, $po->fresh()->total_amount);
+        $this->assertNotNull(PurchaseOrderItem::find($item->id));
+        $this->assertSame(1, $po->fresh()->items()->count());
+    }
 }

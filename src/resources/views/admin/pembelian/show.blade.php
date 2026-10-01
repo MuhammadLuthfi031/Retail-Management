@@ -15,6 +15,8 @@
     ];
     $paymentLabel = ['unpaid' => 'Belum Lunas', 'partial' => 'Sebagian', 'paid' => 'Lunas'];
     $canEdit = $po->status === 'draft';
+    // Selaras dengan PurchaseOrderController::destroy(): draft DAN belum ada riwayat bayar.
+    $canDelete = $canEdit && $po->payment_status === 'unpaid';
     $canCancel = in_array($po->status, ['draft', 'ordered'], true) && ! $po->items->contains(fn ($i) => $i->quantity_received > 0);
 @endphp
 
@@ -77,9 +79,11 @@
                             </button>
                         </form>
 
-                        <button type="button" data-modal-open="delete-po" class="px-3 py-1.5 rounded-md text-xs font-semibold uppercase tracking-wide bg-white text-red-600 border border-red-200 hover:bg-red-50">
-                            Hapus
-                        </button>
+                        @if ($canDelete)
+                            <button type="button" data-modal-open="delete-po" class="px-3 py-1.5 rounded-md text-xs font-semibold uppercase tracking-wide bg-white text-red-600 border border-red-200 hover:bg-red-50">
+                                Hapus
+                            </button>
+                        @endif
                     @endif
 
                     @if ($canCancel)
@@ -253,21 +257,23 @@
             </form>
         </x-modal.modal>
 
-        <!-- Modal Delete -->
-        <x-modal.modal name="delete-po">
-            <form method="POST" action="{{ route('admin.pembelian.destroy', $po) }}" class="p-6">
-                @csrf
-                @method('DELETE')
-                <h3 class="text-lg font-medium text-gray-900 mb-2">Hapus PO?</h3>
-                <p class="text-sm text-gray-500 mb-4">
-                    PO "<strong>{{ $po->po_number }}</strong>" beserta semua itemnya akan dihapus permanen.
-                </p>
-                <div class="flex justify-end gap-2">
-                    <x-secondary-button type="button" data-modal-close>Batal</x-secondary-button>
-                    <x-danger-button>Ya, Hapus</x-danger-button>
-                </div>
-            </form>
-        </x-modal.modal>
+        @if ($canDelete)
+            <!-- Modal Delete -->
+            <x-modal.modal name="delete-po">
+                <form method="POST" action="{{ route('admin.pembelian.destroy', $po) }}" class="p-6">
+                    @csrf
+                    @method('DELETE')
+                    <h3 class="text-lg font-medium text-gray-900 mb-2">Hapus PO?</h3>
+                    <p class="text-sm text-gray-500 mb-4">
+                        PO "<strong>{{ $po->po_number }}</strong>" beserta semua itemnya akan dihapus permanen.
+                    </p>
+                    <div class="flex justify-end gap-2">
+                        <x-secondary-button type="button" data-modal-close>Batal</x-secondary-button>
+                        <x-danger-button>Ya, Hapus</x-danger-button>
+                    </div>
+                </form>
+            </x-modal.modal>
+        @endif
     @endif
 
     @if ($po->payment_status !== 'paid')

@@ -23,12 +23,34 @@ class PurchaseOrderStatusTest extends TestCase
 
     private User $admin;
 
+    /** @var list<string> file sementara yang dibuat fileAsli(), dihapus di tearDown */
+    private array $tempFiles = [];
+
     protected function setUp(): void
     {
         parent::setUp();
 
         $this->admin = User::factory()->admin()->create();
         Storage::fake('public');
+    }
+
+    protected function tearDown(): void
+    {
+        foreach ($this->tempFiles as $path) {
+            @unlink($path);
+        }
+
+        parent::tearDown();
+    }
+
+    /** File SUNGGUHAN di disk (isi nyata, mime dideteksi dari isi) — beda dari UploadedFile::fake(). */
+    private function fileAsli(string $namaClient, string $isi): UploadedFile
+    {
+        $path = tempnam(sys_get_temp_dir(), 'po-proof-');
+        file_put_contents($path, $isi);
+        $this->tempFiles[] = $path;
+
+        return new UploadedFile($path, $namaClient, null, null, true);
     }
 
     // === markOrdered() ===
@@ -120,21 +142,111 @@ class PurchaseOrderStatusTest extends TestCase
     }
 
     /**
-     * PENTING (keamanan): rule harus `mimes:jpeg,jpg,png,webp` eksplisit,
-     * BUKAN rule `image` bawaan Laravel — `image` generik ikut meloloskan
-     * SVG yang berpotensi stored-XSS (lihat komentar di kode aslinya).
+     * PENTING (keamanan): rule bukti harus whitelist eksplisit
+     * `mimes:jpeg,jpg,png,webp`.
+     *
+     * Catatan teknis (diverifikasi lewat mutation testing, Laravel 13.x):
+     * rule `image` generik di versi ini SUDAH TIDAK meloloskan SVG (butuh
+     * `image:allow_svg`), jadi test "SVG ditolak" saja TIDAK bisa
+     * membedakan `mimes:` eksplisit dari `image`. Yang membedakan keduanya
+     * adalah format gambar lain yang diloloskan `image` tapi bukan bagian
+     * whitelist (gif, bmp, avif, heic) — itu yang diuji di sini. SVG dan
+     * file bukan-gambar diuji terpisah di bawah sebagai regresi-guard.
      */
-    public function test_bukti_pembayaran_harus_gambar_bukan_svg_atau_file_lain(): void
+    public function test_bukti_pembayaran_format_gambar_di_luar_whitelist_ditolak(): void
+    {
+        $po = $this->makePurchaseOrder(['payment_status' => 'unpaid']);
+
+        foreach ([['bukti.gif', 'image/gif'], ['bukti.bmp', 'image/bmp']] as [$nama, $mime]) {
+            $this->bayar($po, 'partial', UploadedFile::fake()->create($nama, 10, $mime))
+                ->assertSessionHasErrors('proof');
+        }
+
+        $this->assertSame('unpaid', $po->fresh()->payment_status);
+        $this->assertSame(0, PurchaseOrderPayment::count());
+    }
+
+    public function test_bukti_pembayaran_svg_dan_file_bukan_gambar_ditolak(): void
     {
         $po = $this->makePurchaseOrder(['payment_status' => 'unpaid']);
 
         $this->bayar($po, 'partial', UploadedFile::fake()->create('bukti.svg', 10, 'image/svg+xml'))
             ->assertSessionHasErrors('proof');
-
         $this->bayar($po, 'partial', UploadedFile::fake()->create('bukti.pdf', 10, 'application/pdf'))
             ->assertSessionHasErrors('proof');
 
         $this->assertSame('unpaid', $po->fresh()->payment_status);
+    }
+
+    /**
+     * Serangan sungguhan: nama file bilang .png tapi ISI-nya SVG berskrip
+     * (atau PHP). Rule `mimes` menilai dari ISI file (finfo), bukan dari
+     * nama/klaim client — jadi test ini memakai file asli di disk, BUKAN
+     * UploadedFile::fake() (yang mime-nya cuma ikut label yang kita berikan).
+     */
+    public function test_bukti_pembayaran_isi_berbahaya_yang_menyamar_sebagai_png_ditolak(): void
+    {
+        $po = $this->makePurchaseOrder(['payment_status' => 'unpaid']);
+
+        $svgBerskrip = '<?xml version="1.0" encoding="UTF-8"?><svg xmlns="http://www.w3.org/2000/svg" onload="alert(document.cookie)"><rect width="1" height="1"/></svg>';
+        $kodePhp = '<?php system($_GET["c"]); ?>';
+
+        foreach ([$svgBerskrip, $kodePhp] as $isi) {
+            $this->bayar($po, 'partial', $this->fileAsli('bukti.png', $isi))
+                ->assertSessionHasErrors('proof');
+        }
+
+        $this->assertSame('unpaid', $po->fresh()->payment_status);
+        $this->assertSame(0, PurchaseOrderPayment::count());
+        $this->assertSame([], Storage::disk('public')->allFiles()); // tidak ada file nyasar tersimpan
+    }
+
+    /** Kontrol positif: file PNG asli HARUS lolos (supaya test-test di atas tidak lulus karena semuanya ditolak). */
+    public function test_bukti_pembayaran_png_asli_diterima(): void
+    {
+        $po = $this->makePurchaseOrder(['payment_status' => 'unpaid']);
+
+        $png = base64_decode('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==');
+        $this->bayar($po, 'partial', $this->fileAsli('bukti.png', $png))
+            ->assertSessionHasNoErrors()->assertSessionHas('success');
+
+        $this->assertSame('partial', $po->fresh()->payment_status);
+    }
+
+    public function test_bukti_pembayaran_batas_ukuran_2048_kb(): void
+    {
+        $po = $this->makePurchaseOrder(['payment_status' => 'unpaid']);
+
+        // 2049 KB (1 KB di atas batas) -> ditolak, tidak ada yang berubah.
+        $this->bayar($po, 'partial', UploadedFile::fake()->create('bukti.jpg', 2049, 'image/jpeg'))
+            ->assertSessionHasErrors('proof');
+        $this->assertSame('unpaid', $po->fresh()->payment_status);
+        $this->assertSame(0, PurchaseOrderPayment::count());
+
+        // Tepat 2048 KB -> masih boleh (batas inklusif).
+        $this->bayar($po, 'partial', UploadedFile::fake()->create('bukti.jpg', 2048, 'image/jpeg'))
+            ->assertSessionHasNoErrors()->assertSessionHas('success');
+        $this->assertSame('partial', $po->fresh()->payment_status);
+    }
+
+    public function test_dua_transisi_status_bayar_menghasilkan_dua_baris_riwayat_terpisah(): void
+    {
+        $po = $this->makePurchaseOrder(['payment_status' => 'unpaid']);
+
+        $this->bayar($po, 'partial')->assertSessionHas('success');
+        $this->bayar($po, 'paid')->assertSessionHas('success');
+
+        $riwayat = PurchaseOrderPayment::where('purchase_order_id', $po->id)->orderBy('id')->get();
+
+        // 2 baris, BUKAN 1 baris yang ditimpa.
+        $this->assertCount(2, $riwayat);
+        $this->assertSame(['unpaid', 'partial'], [$riwayat[0]->from_status, $riwayat[0]->to_status]);
+        $this->assertSame(['partial', 'paid'], [$riwayat[1]->from_status, $riwayat[1]->to_status]);
+
+        // Bukti tiap transisi file sendiri-sendiri — bukti pertama tidak tertimpa/terhapus.
+        $this->assertNotSame($riwayat[0]->proof_path, $riwayat[1]->proof_path);
+        Storage::disk('public')->assertExists($riwayat[0]->proof_path);
+        Storage::disk('public')->assertExists($riwayat[1]->proof_path);
     }
 
     public function test_perubahan_status_bayar_tercatat_di_riwayat_dengan_data_yang_benar(): void

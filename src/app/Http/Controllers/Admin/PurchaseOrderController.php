@@ -212,6 +212,17 @@ class PurchaseOrderController extends Controller
             return back()->with('error', 'Hanya PO berstatus draft yang bisa dihapus. Gunakan "Batalkan" untuk PO yang sudah dipesan.');
         }
 
+        // PENTING (jejak keuangan): updatePaymentStatus() tidak membatasi status PO,
+        // jadi PO draft pun bisa sudah dibayar. Menghapusnya akan ikut menghapus
+        // (cascadeOnDelete) riwayat pembayaran + bukti transfernya, dan file bukti
+        // di storage tertinggal tanpa pemilik. PO yang sudah punya riwayat bayar
+        // cukup di-"Batalkan" (cancel()) — datanya tetap utuh sebagai jejak audit.
+        // Dua syarat dicek sekaligus: payment_status (yang dilihat user) DAN
+        // keberadaan baris riwayat (invarian sebenarnya, tahan data tak konsisten).
+        if ($pembelian->payment_status !== 'unpaid' || $pembelian->payments()->exists()) {
+            return back()->with('error', 'PO ini sudah memiliki riwayat pembayaran sehingga tidak bisa dihapus (jejak keuangan harus tetap utuh). Gunakan "Batalkan PO" kalau memang tidak jadi dipakai.');
+        }
+
         $pembelian->delete(); // items ikut terhapus (cascadeOnDelete)
 
         return redirect()->route('admin.pembelian.index')->with('success', 'PO berhasil dihapus.');
