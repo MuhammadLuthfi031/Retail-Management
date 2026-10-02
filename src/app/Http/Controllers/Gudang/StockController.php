@@ -115,7 +115,10 @@ class StockController extends Controller
                 return back()->with('success', "Stok fisik \"{$locked->name}\" sudah sesuai dengan sistem, tidak ada penyesuaian yang dicatat.");
             }
 
-            $note = $validated['note'] ?: 'Hasil stok opname';
+            // `nullable` TIDAK memasukkan key ke $validated kalau field-nya tidak
+            // dikirim sama sekali (beda dari dikirim kosong/null) — akses langsung
+            // $validated['note'] = ErrorException "Undefined array key" (HTTP 500).
+            $note = ($validated['note'] ?? null) ?: 'Hasil stok opname';
             $note .= $selisih > 0
                 ? " (stok fisik lebih banyak {$selisih} dari catatan sistem)"
                 : ' (stok fisik lebih sedikit ' . abs($selisih) . ' dari catatan sistem)';

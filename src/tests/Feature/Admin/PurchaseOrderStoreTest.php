@@ -43,6 +43,7 @@ class PurchaseOrderStoreTest extends TestCase
     {
         parent::setUp();
 
+        $this->hindariIdUserPertama();
         $this->admin = User::factory()->admin()->create();
         $this->supplier = Supplier::forceCreate(['name' => 'Supplier Uji']);
         $this->product = $this->makeProduct();
@@ -81,6 +82,7 @@ class PurchaseOrderStoreTest extends TestCase
         $po = PurchaseOrder::firstOrFail();
         $this->assertSame('draft', $po->status);
         $this->assertSame('unpaid', $po->payment_status);
+        $this->assertSame($this->admin->id, $po->created_by, 'pembuat PO tercatat sebagai admin yang login (jejak audit)');
         $this->assertSame(110000, $po->total_amount); // 10 x 11.000, dihitung ULANG server, bukan dari client
 
         $item = PurchaseOrderItem::firstOrFail();

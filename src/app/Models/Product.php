@@ -132,6 +132,23 @@ class Product extends Model
 
         $number = $last ? ((int) substr($last->sku, 4)) + 1 : 1;
 
+        // PENTING (QA-004): kolom `sku` juga bisa diisi MANUAL, dan SKU manual
+        // boleh saja berawalan "PRD-" tapi bukan angka (mis. "PRD-ABC" => (int)
+        // 0 => kandidat "PRD-0001") atau lebih kecil dari SKU auto yang sudah
+        // ada. Tanpa pengecekan ini kandidat bisa menabrak SKU existing, dan
+        // karena generateSku() deterministik, 3x percobaan ulang di
+        // createWithUniqueSku() menghasilkan kandidat yang sama persis -> HTTP
+        // 500. Naikkan nomor sampai menemukan yang benar-benar kosong (query
+        // tambahan hanya terjadi saat memang ada tabrakan).
+        while (self::where('sku', self::formatAutoSku($number))->exists()) {
+            $number++;
+        }
+
+        return self::formatAutoSku($number);
+    }
+
+    private static function formatAutoSku(int $number): string
+    {
         return 'PRD-' . str_pad((string) $number, 4, '0', STR_PAD_LEFT);
     }
 

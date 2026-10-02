@@ -35,6 +35,7 @@ class CheckoutTest extends TestCase
     {
         parent::setUp();
 
+        $this->hindariIdUserPertama();
         $this->kasir = User::factory()->kasir()->create();
         $this->product = $this->makeProduct(['stock' => 100, 'average_cost' => 700]);
     }

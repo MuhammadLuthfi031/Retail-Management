@@ -30,6 +30,7 @@ class StockMovementTest extends TestCase
     {
         parent::setUp();
 
+        $this->hindariIdUserPertama();
         $this->user = User::factory()->gudang()->create();
     }
 

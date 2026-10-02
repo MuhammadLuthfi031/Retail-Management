@@ -66,6 +66,25 @@ class ProductController extends Controller
     public function store(Request $request): RedirectResponse
     {
         $validated = $this->validatedProduct($request);
+
+        // Stok & biaya awal divalidasi TERPISAH (bukan digabung ke $validated):
+        // $validated langsung masuk ke Product::create(), dan kedua field ini
+        // bukan atribut produk (Model::preventSilentlyDiscardingAttributes aktif
+        // di non-produksi -> MassAssignmentException). Sebelumnya tidak divalidasi
+        // sama sekali (hanya `min="0"` di HTML): biaya awal negatif menghasilkan
+        // average_cost NEGATIF yang merusak laporan laba/rugi, dan stok awal
+        // "abc"/negatif diam-diam jadi 0 tanpa pesan apa pun.
+        $request->validate([
+            'initial_stock' => ['nullable', 'numeric', 'min:0', 'max:999999999.999'],
+            'initial_cost' => ['nullable', 'numeric', 'min:0'],
+        ], [
+            'initial_stock.numeric' => 'Stok awal harus berupa angka.',
+            'initial_stock.min' => 'Stok awal tidak boleh negatif.',
+            'initial_stock.max' => 'Stok awal terlalu besar.',
+            'initial_cost.numeric' => 'Harga pokok awal harus berupa angka.',
+            'initial_cost.min' => 'Harga pokok awal tidak boleh negatif.',
+        ]);
+
         $units = $this->extractUnits($request);
 
         // Form sudah kirim hidden input fallback ("0") sebelum kedua checkbox ini
@@ -77,33 +96,47 @@ class ProductController extends Controller
         $validated['is_active'] = $request->boolean('is_active');
         $validated['allow_fractional_sale'] = $request->boolean('allow_fractional_sale');
 
+        // File disimpan SEBELUM transaksi (path-nya dibutuhkan kolom `image`), tapi
+        // rollback database TIDAK menjangkau file di disk — jadi kalau transaksi
+        // gagal, file-nya harus dibersihkan manual (lihat catch di bawah), kalau
+        // tidak tertinggal sebagai file yatim.
+        $newImage = null;
         if ($request->hasFile('image')) {
-            $validated['image'] = $request->file('image')->store('products', 'public');
+            $newImage = $request->file('image')->store('products', 'public');
+            $validated['image'] = $newImage;
         }
 
-        $product = DB::transaction(function () use ($validated, $units, $request) {
-            // createWithUniqueSku() men-generate SKU sendiri (dengan lock+retry,
-            // lihat Product::generateSku()) kalau $validated['sku'] kosong — WAJIB
-            // dipanggil di dalam DB::transaction() ini supaya lockForUpdate di
-            // dalamnya benar-benar berefek (sama seperti pola invoice/PO number).
-            /** @var Product $product */
-            $product = Product::createWithUniqueSku($validated);
-            $this->syncUnits($product, $units);
+        try {
+            $product = DB::transaction(function () use ($validated, $units, $request) {
+                // createWithUniqueSku() men-generate SKU sendiri (dengan lock+retry,
+                // lihat Product::generateSku()) kalau $validated['sku'] kosong — WAJIB
+                // dipanggil di dalam DB::transaction() ini supaya lockForUpdate di
+                // dalamnya benar-benar berefek (sama seperti pola invoice/PO number).
+                /** @var Product $product */
+                $product = Product::createWithUniqueSku($validated);
+                $this->syncUnits($product, $units);
 
-            $initialStock = (float) $request->input('initial_stock', 0);
-            if ($initialStock > 0) {
-                StockMovement::record(
-                    product: $product,
-                    type: 'in',
-                    quantity: $initialStock,
-                    userId: auth()->id(),
-                    note: 'Stok awal saat produk pertama kali dibuat',
-                    unitCost: $request->filled('initial_cost') ? (int) $request->input('initial_cost') : null,
-                );
+                $initialStock = (float) $request->input('initial_stock', 0);
+                if ($initialStock > 0) {
+                    StockMovement::record(
+                        product: $product,
+                        type: 'in',
+                        quantity: $initialStock,
+                        userId: auth()->id(),
+                        note: 'Stok awal saat produk pertama kali dibuat',
+                        unitCost: $request->filled('initial_cost') ? (int) $request->input('initial_cost') : null,
+                    );
+                }
+
+                return $product;
+            });
+        } catch (\Throwable $e) {
+            if ($newImage) {
+                Storage::disk('public')->delete($newImage);
             }
 
-            return $product;
-        });
+            throw $e;
+        }
 
         return redirect()->route('gudang.produk.show', $product)->with('success', "Produk \"{$product->name}\" berhasil ditambahkan.");
     }
@@ -150,17 +183,37 @@ class ProductController extends Controller
         // sisi server untuk berjaga-jaga (defense in depth).
         unset($validated['tracking_mode']);
 
+        // URUTAN PENTING (QA-004): jangan hapus foto LAMA sebelum DB benar-benar
+        // commit. syncUnits() di dalam transaksi bisa menolak (rasio satuan sudah
+        // dipakai di PO, satuan tak boleh dihapus, dst) — rollback membatalkan
+        // perubahan DB tapi TIDAK mengembalikan file yang sudah terhapus, hasilnya
+        // kolom `image` masih menunjuk file yang sudah tidak ada. Maka: simpan file
+        // baru dulu, jalankan transaksi, baru hapus yang lama SETELAH sukses (dan
+        // bersihkan file baru kalau transaksi gagal).
+        $oldImage = $product->image;
+        $newImage = null;
+
         if ($request->hasFile('image')) {
-            if ($product->image) {
-                Storage::disk('public')->delete($product->image);
-            }
-            $validated['image'] = $request->file('image')->store('products', 'public');
+            $newImage = $request->file('image')->store('products', 'public');
+            $validated['image'] = $newImage;
         }
 
-        DB::transaction(function () use ($product, $validated, $units) {
-            $product->update($validated);
-            $this->syncUnits($product, $units);
-        });
+        try {
+            DB::transaction(function () use ($product, $validated, $units) {
+                $product->update($validated);
+                $this->syncUnits($product, $units);
+            });
+        } catch (\Throwable $e) {
+            if ($newImage) {
+                Storage::disk('public')->delete($newImage);
+            }
+
+            throw $e;
+        }
+
+        if ($newImage && $oldImage) {
+            Storage::disk('public')->delete($oldImage);
+        }
 
         return back()->with('success', "Produk \"{$product->name}\" berhasil diperbarui.");
     }
@@ -175,11 +228,15 @@ class ProductController extends Controller
             return back()->with('error', "Produk \"{$product->name}\" tidak bisa dihapus karena sudah pernah dipakai di Purchase Order. Nonaktifkan saja produk ini jika sudah tidak dipesan lagi.");
         }
 
-        if ($product->image) {
-            Storage::disk('public')->delete($product->image);
-        }
+        $image = $product->image;
 
         $product->delete(); // product_units ikut terhapus (cascadeOnDelete)
+
+        // File dihapus SETELAH baris database benar-benar terhapus (bukan sebelum):
+        // kalau delete() gagal, produk yang masih ada tidak boleh kehilangan fotonya.
+        if ($image) {
+            Storage::disk('public')->delete($image);
+        }
 
         return redirect()->route('gudang.produk.index')->with('success', "Produk \"{$product->name}\" berhasil dihapus.");
     }
@@ -240,7 +297,24 @@ class ProductController extends Controller
                 continue; // lewati baris kosong (misal sempat ditambah lalu dikosongkan)
             }
 
-            $rawQty = ($row['relative_qty'] ?? '') !== '' ? (float) $row['relative_qty'] : null;
+            // Cast (int)/(float) langsung DIAM-DIAM mengubah "abc" jadi 0 dan "-500"
+            // jadi -500 (QA-004): harga jual 0/negatif lolos ke POS. Tolak dulu
+            // sebelum di-cast.
+            $rawPrice = $row['selling_price'] ?? '';
+            if ($rawPrice !== '' && (! is_numeric($rawPrice) || (float) $rawPrice < 0)) {
+                throw ValidationException::withMessages([
+                    'units' => "Harga jual satuan \"{$unitName}\" harus berupa angka 0 atau lebih.",
+                ]);
+            }
+
+            $rawRelative = $row['relative_qty'] ?? '';
+            if ($rawRelative !== '' && ! is_numeric($rawRelative)) {
+                throw ValidationException::withMessages([
+                    'units' => "Kolom \"Isi\" untuk satuan \"{$unitName}\" harus berupa angka.",
+                ]);
+            }
+
+            $rawQty = $rawRelative !== '' ? (float) $rawRelative : null;
 
             $cleanRows[] = [
                 'id' => $row['id'] ?? null,
@@ -256,6 +330,23 @@ class ProductController extends Controller
             throw ValidationException::withMessages(['units' => 'Minimal harus ada 1 satuan produk yang valid.']);
         }
 
+        // Nama satuan harus unik per produk (unique(product_id, unit_name) di
+        // database). Dibandingkan tanpa peduli huruf besar/kecil karena collation
+        // MySQL case-insensitive menganggap "Dus" dan "dus" sama. Tanpa cek ini
+        // nama kembar langsung HTTP 500 (UniqueConstraintViolationException).
+        $seenNames = [];
+        foreach ($cleanRows as $row) {
+            $key = mb_strtolower($row['unit_name']);
+
+            if (isset($seenNames[$key])) {
+                throw ValidationException::withMessages([
+                    'units' => "Nama satuan \"{$row['unit_name']}\" dipakai lebih dari sekali pada produk ini. Setiap satuan harus punya nama yang berbeda.",
+                ]);
+            }
+
+            $seenNames[$key] = true;
+        }
+
         // Baris PALING BAWAH (terakhir dalam urutan pengiriman form, yang
         // mengikuti urutan visual tabel dari atas ke bawah) = satuan dasar.
         $baseArrayIndex = count($cleanRows) - 1;
@@ -269,6 +360,15 @@ class ProductController extends Controller
                     'units' => "Isi kolom \"Isi\" untuk satuan \"{$row['unit_name']}\" (harus lebih besar dari 0).",
                 ]);
             }
+
+            // conversion_to_base adalah decimal(12,3): nilai < 0,001 dibulatkan DB
+            // jadi 0,000 (pembagian dengan nol di fromBase(), dan penjualan yang
+            // memotong stok 0). Cegah di sini.
+            if ($row['relative_qty'] < 0.001) {
+                throw ValidationException::withMessages([
+                    'units' => "Isi untuk satuan \"{$row['unit_name']}\" terlalu kecil (minimal 0,001).",
+                ]);
+            }
         }
 
         // Hitung conversion_to_base ABSOLUT (ke satuan dasar) secara BERJENJANG:
@@ -280,6 +380,15 @@ class ProductController extends Controller
         $absolute = array_fill(0, $count, 1.0);
         for ($i = $baseArrayIndex - 1; $i >= 0; $i--) {
             $absolute[$i] = $cleanRows[$i]['relative_qty'] * $absolute[$i + 1];
+        }
+
+        // Perkalian berjenjang bisa meluap melewati kapasitas decimal(12,3).
+        foreach ($cleanRows as $i => $row) {
+            if ($absolute[$i] > 999999999.999) {
+                throw ValidationException::withMessages([
+                    'units' => "Isi bertingkat untuk satuan \"{$row['unit_name']}\" terlalu besar (hasil konversi ke satuan dasar melebihi batas).",
+                ]);
+            }
         }
 
         $units = [];

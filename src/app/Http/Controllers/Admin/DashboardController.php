@@ -124,8 +124,12 @@ class DashboardController extends Controller
             ->join('transactions', 'transactions.id', '=', 'transaction_details.transaction_id')
             ->where('transactions.status', 'completed')
             ->whereBetween('transactions.created_at', [$from, $to])
-            ->selectRaw('transaction_details.product_name, SUM(transaction_details.subtotal) as total_omzet, SUM(transaction_details.quantity) as total_qty')
-            ->groupBy('transaction_details.product_name')
+            // Dikelompokkan per product_id + nama (sama seperti LaporanController),
+            // BUKAN per nama saja: dua produk BERBEDA yang kebetulan bernama sama
+            // (mis. beda ukuran/kategori) sebelumnya tergabung jadi satu baris
+            // dan membuat peringkat Top 5 berbeda dari yang tampil di Laporan.
+            ->selectRaw('transaction_details.product_id, transaction_details.product_name, SUM(transaction_details.subtotal) as total_omzet, SUM(transaction_details.quantity) as total_qty')
+            ->groupBy('transaction_details.product_id', 'transaction_details.product_name')
             ->orderByDesc('total_omzet')
             ->limit(5)
             ->get();

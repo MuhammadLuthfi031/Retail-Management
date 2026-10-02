@@ -39,6 +39,7 @@ class PurchaseReceiptTest extends TestCase
     {
         parent::setUp();
 
+        $this->hindariIdUserPertama();
         $this->gudang = User::factory()->gudang()->create();
         Storage::fake('public');
     }

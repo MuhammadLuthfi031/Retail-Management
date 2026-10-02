@@ -38,6 +38,7 @@ class CheckoutIdempotencyTest extends TestCase
     {
         parent::setUp();
 
+        $this->hindariIdUserPertama();
         $this->kasir = User::factory()->kasir()->create();
         $this->product = $this->makeProduct(['stock' => 100, 'average_cost' => 700]);
     }
@@ -108,6 +109,34 @@ class CheckoutIdempotencyTest extends TestCase
         $this->assertSame($first->json('data.grand_total'), $second->json('data.grand_total'));
         $this->assertSame(1, Transaction::count());
         $this->assertEquals(88.0, $this->stockOf($this->product));
+    }
+
+    /**
+     * Skenario nyata paling menyakitkan: kasir menjual stok TERAKHIR, respons
+     * hilang di jalan, kasir klik ulang. Pada saat retry stok sudah 0 — kalau
+     * jalur cepat (findOwnTransactionByKey) tidak mengenali transaksi milik
+     * sendiri, retry jatuh ke validasi stok di processCheckout() dan kasir
+     * melihat "stok tidak cukup" untuk penjualan yang SUDAH tersimpan.
+     * Mutation testing (QA-004) membuktikan test lama (stok 100) tidak pernah
+     * menyentuh jalur ini.
+     */
+    public function test_retry_after_the_sale_consumed_the_last_stock_still_returns_the_original_transaction(): void
+    {
+        Product::whereKey($this->product->id)->update(['stock' => 12]); // pas 1 renceng
+        $key = (string) Str::uuid();
+
+        $first = $this->checkout($key, $this->cart(1, 'renceng'))->assertCreated();
+        $this->assertEquals(0.0, $this->stockOf($this->product));
+
+        // Selagi menunggu, produk juga dinonaktifkan: retry tetap tidak boleh berubah jadi error.
+        Product::whereKey($this->product->id)->update(['is_active' => false]);
+
+        $second = $this->checkout($key, $this->cart(1, 'renceng'))->assertOk();
+
+        $this->assertSame($first->json('data'), $second->json('data'));
+        $this->assertSame(1, Transaction::count());
+        $this->assertSame(1, StockMovement::count());
+        $this->assertEquals(0.0, $this->stockOf($this->product)); // tidak minus, tidak dipotong lagi
     }
 
     public function test_replay_is_stored_and_matched_case_insensitively(): void

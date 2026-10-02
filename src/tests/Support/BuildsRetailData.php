@@ -76,6 +76,22 @@ trait BuildsRetailData
         return Product::with('units')->findOrFail($product->id);
     }
 
+    /**
+     * Panggil di AWAL setUp() — SEBELUM membuat user pelaku — untuk menggeser
+     * id user berikutnya supaya BUKAN 1.
+     *
+     * Kenapa perlu: SQLite me-reset sequence tiap test (transaksi di-rollback),
+     * jadi user pertama selalu ber-id 1. Kode yang salah mencatat pelaku dengan
+     * konstanta (mis. `'user_id' => 1`) lalu kebetulan "benar" di test dan
+     * lolos dari asersi `assertSame($user->id, $row->user_id)` — padahal di
+     * produksi mencatat karyawan yang keliru = jejak audit rusak diam-diam.
+     * Terbukti lewat mutation testing (QA-004): 5 titik pencatat user lolos.
+     */
+    protected function hindariIdUserPertama(): void
+    {
+        User::factory()->kasir()->create();
+    }
+
     protected function signInAs(string $role): User
     {
         $user = User::factory()->{$role}()->create();

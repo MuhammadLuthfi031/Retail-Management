@@ -30,6 +30,7 @@ class PurchaseOrderStatusTest extends TestCase
     {
         parent::setUp();
 
+        $this->hindariIdUserPertama();
         $this->admin = User::factory()->admin()->create();
         Storage::fake('public');
     }
