@@ -5,6 +5,7 @@
         'mutation' => 'Mutasi',
         'adjustment' => 'Opname',
         'sale' => 'Penjualan',
+        'return_in' => 'Retur Pelanggan',
     ];
     $typeColor = [
         'in' => 'bg-emerald-100 text-emerald-700',
@@ -12,6 +13,7 @@
         'mutation' => 'bg-blue-100 text-blue-700',
         'adjustment' => 'bg-amber-100 text-amber-700',
         'sale' => 'bg-purple-100 text-purple-700',
+        'return_in' => 'bg-teal-100 text-teal-700',
     ];
 @endphp
 

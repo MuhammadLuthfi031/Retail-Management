@@ -3,6 +3,7 @@
 use App\Http\Controllers\Admin\LaporanController;
 use App\Http\Controllers\Admin\DashboardController;
 use App\Http\Controllers\Admin\PurchaseOrderController;
+use App\Http\Controllers\Admin\SalesReturnController;
 use App\Http\Controllers\Admin\SupplierController;
 use App\Http\Controllers\Admin\UserController;
 use App\Http\Controllers\Gudang\CategoryController;
@@ -11,6 +12,7 @@ use App\Http\Controllers\Gudang\PurchaseReceiptController;
 use App\Http\Controllers\Gudang\StockController;
 use App\Http\Controllers\Kasir\PosController;
 use App\Http\Controllers\Kasir\RiwayatController;
+use App\Http\Controllers\Kasir\ReturController;
 use App\Http\Controllers\ProfileController;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\Route;
@@ -43,6 +45,9 @@ Route::middleware(['auth', 'no-cache'])->group(function () {
         Route::post('/pos/checkout', [PosController::class, 'checkout'])->name('pos.checkout');
         Route::get('/riwayat', [RiwayatController::class, 'index'])->name('riwayat');
         Route::get('/riwayat/{transaction}/struk', [RiwayatController::class, 'struk'])->name('riwayat.struk');
+        // Retur pelanggan dari modal di Riwayat Transaksi (kasir: milik sendiri, admin: semua).
+        Route::get('/riwayat/{transaction}/retur', [ReturController::class, 'form'])->name('riwayat.retur.form');
+        Route::post('/riwayat/{transaction}/retur', [ReturController::class, 'store'])->name('riwayat.retur.store');
         Route::get('/produk', [PosController::class, 'produk'])->name('produk');
     });
 
@@ -86,6 +91,13 @@ Route::middleware(['auth', 'no-cache'])->group(function () {
             Route::get('/laba-rugi/pdf', [LaporanController::class, 'labaRugiPdf'])->name('laba-rugi.pdf');
             Route::get('/stok', [LaporanController::class, 'stok'])->name('stok');
             Route::get('/stok/pdf', [LaporanController::class, 'stokPdf'])->name('stok.pdf');
+        });
+
+        // Daftar & detail retur penjualan dari SEMUA kasir — hanya Admin. Memproses
+        // retur ada di modal Riwayat Transaksi (route kasir.riwayat.retur.*).
+        Route::prefix('retur-penjualan')->name('retur-penjualan.')->group(function () {
+            Route::get('/', [SalesReturnController::class, 'index'])->name('index');
+            Route::get('/{salesReturn}', [SalesReturnController::class, 'show'])->name('show');
         });
 
         // Manajemen User/Karyawan (§7.2 spesifikasi) — lihat UserController

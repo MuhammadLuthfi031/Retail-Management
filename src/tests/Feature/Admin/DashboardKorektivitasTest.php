@@ -6,6 +6,7 @@ use App\Models\StockMovement;
 use App\Models\User;
 use Carbon\Carbon;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use PHPUnit\Framework\Attributes\DataProvider;
 use Tests\Support\BuildsRetailData;
 use Tests\TestCase;
 
@@ -494,16 +495,26 @@ class DashboardKorektivitasTest extends TestCase
             ->assertSee('Gula Menipis');
     }
 
-    public function test_hanya_admin_yang_boleh_membuka_dashboard_admin(): void
+    #[DataProvider('roleNonAdmin')]
+    public function test_role_selain_admin_ditolak_membuka_dashboard_admin(string $role): void
     {
-        foreach (['kasir', 'gudang'] as $role) {
-            $this->actingAs(User::factory()->{$role}()->create())
-                ->get(route('admin.dashboard'))->assertForbidden();
-        }
+        $this->actingAs(User::factory()->{$role}()->create())
+            ->get(route('admin.dashboard'))->assertForbidden();
+    }
 
-        auth()->logout();
+    public static function roleNonAdmin(): array
+    {
+        return ['kasir' => ['kasir'], 'gudang' => ['gudang']];
+    }
+
+    public function test_tamu_diarahkan_ke_login_saat_membuka_dashboard_admin(): void
+    {
+        // Setiap test Laravel dimulai sebagai tamu (setUp hanya membuat user, tidak login).
         $this->get(route('admin.dashboard'))->assertRedirect(route('login'));
+    }
 
+    public function test_admin_boleh_membuka_dashboard_admin(): void
+    {
         $this->dash()->assertOk();
     }
 }

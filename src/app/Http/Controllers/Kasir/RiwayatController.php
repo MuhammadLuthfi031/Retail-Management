@@ -27,6 +27,9 @@ class RiwayatController extends Controller
         $transactions = Transaction::query()
             ->where('user_id', auth()->id())
             ->withCount('details')
+            // Ringkasan retur per baris (untuk badge & tombol Retur di view): 1 query
+            // tambahan untuk seluruh halaman, bukan per transaksi.
+            ->with(['details' => fn ($q) => $q->withSum('returnItems', 'quantity')])
             ->when($validated['dari'] ?? null, fn ($q, $v) => $q->whereDate('created_at', '>=', $v))
             ->when($validated['sampai'] ?? null, fn ($q, $v) => $q->whereDate('created_at', '<=', $v))
             ->latest()

@@ -34,6 +34,32 @@ class Transaction extends Model
         return $this->hasMany(TransactionDetail::class);
     }
 
+    public function salesReturns()
+    {
+        return $this->hasMany(SalesReturn::class);
+    }
+
+    /**
+     * Status retur turunan: 'none' | 'partial' | 'full'. Membutuhkan relasi
+     * `details` ter-load dengan withSum('returnItems', 'quantity') — dipakai
+     * untuk badge di daftar; keputusan boleh/tidaknya retur TETAP dihitung
+     * ulang di dalam lock oleh SalesReturnService.
+     */
+    public function returnState(): string
+    {
+        $returnedAny = false;
+        $allFull = $this->details->isNotEmpty();
+
+        foreach ($this->details as $d) {
+            $returned = (int) round(((float) ($d->return_items_sum_quantity ?? 0)) * 1000);
+            $sold = (int) round(((float) $d->quantity) * 1000);
+            $returnedAny = $returnedAny || $returned > 0;
+            $allFull = $allFull && $returned >= $sold;
+        }
+
+        return ! $returnedAny ? 'none' : ($allFull ? 'full' : 'partial');
+    }
+
     /**
      * PENTING (race condition): kunci baris invoice TERAKHIR hari ini (kalau
      * sudah ada) dengan `lockForUpdate()` — proses checkout lain yang

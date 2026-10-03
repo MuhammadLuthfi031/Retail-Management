@@ -91,6 +91,11 @@
                 <x-icon name="cart" />
                 Purchase Order
             </a>
+            <a href="{{ route('admin.retur-penjualan.index') }}"
+               class="flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium transition {{ $navLink('admin.retur-penjualan', '', '')['classes'] }}">
+                <x-icon name="archive" />
+                Retur Penjualan
+            </a>
             <a href="{{ route('admin.supplier.index') }}"
                class="flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium transition {{ $navLink('admin.supplier', '', '')['classes'] }}">
                 <x-icon name="truck" />

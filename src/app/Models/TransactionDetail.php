@@ -40,6 +40,11 @@ class TransactionDetail extends Model
         return $this->belongsTo(Product::class);
     }
 
+    public function returnItems()
+    {
+        return $this->hasMany(SalesReturnItem::class);
+    }
+
     /** Kuantitas yang terjual, dikonversi ke satuan dasar produk. */
     public function quantityInBaseUnit(): float
     {

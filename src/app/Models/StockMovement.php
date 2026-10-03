@@ -32,7 +32,7 @@ class StockMovement extends Model
         ];
     }
 
-    public const INCREASING_TYPES = ['in', 'adjustment'];
+    public const INCREASING_TYPES = ['in', 'adjustment', 'return_in'];
     public const DECREASING_TYPES = ['out', 'mutation', 'sale'];
 
     public function product()

@@ -12,6 +12,7 @@ import './stock-adjust-tabs';
 import './collapse-toggle';
 import './form-segments';
 import './purchase-receipt-form';
+import '/retur-modal';
 
 import Alpine from 'alpinejs';
 

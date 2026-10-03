@@ -169,6 +169,7 @@ class RoleAccessTest extends TestCase
             'admin.supplier.index' => [null, ['admin']],
             'admin.pembelian.index' => [null, ['admin']],
             'admin.pembelian.show' => ['po', ['admin']],
+            'admin.retur-penjualan.index' => [null, ['admin']],
         ];
 
         $cases = [];
@@ -205,6 +206,7 @@ class RoleAccessTest extends TestCase
             ['POST', 'gudang.stok.opname', 'product', ['kasir']],
             ['POST', 'gudang.pembelian.store', 'po', ['kasir']],
             ['POST', 'kasir.pos.checkout', null, ['gudang']],
+            ['POST', 'kasir.riwayat.retur.store', 'transaction', ['gudang']],
 
             ['POST', 'admin.users.store', null, ['kasir', 'gudang']],
             ['PUT', 'admin.users.toggle-status', 'user', ['kasir', 'gudang']],

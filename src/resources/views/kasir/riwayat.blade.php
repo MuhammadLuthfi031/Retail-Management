@@ -22,6 +22,12 @@
     $isBulanIni = $activeDari === $monthStartDate && $activeSampai === $todayDate;
     $isCustomRange = ($activeDari || $activeSampai) && ! $isToday && ! $is7Hari && ! $isBulanIni;
 
+    // Badge status retur (turunan dari qty yang sudah diretur, lihat Transaction::returnState()).
+    $returBadge = [
+        'partial' => ['Diretur sebagian', 'bg-amber-100 text-amber-700'],
+        'full' => ['Diretur penuh', 'bg-gray-200 text-gray-600'],
+    ];
+
     $chipOn = 'bg-indigo-600 border-indigo-600 text-white';
     $chipOff = 'bg-white border-gray-300 text-gray-600 hover:border-indigo-400';
 @endphp
@@ -116,8 +122,14 @@
                     </thead>
                     <tbody class="divide-y divide-gray-100">
                         @forelse ($transactions as $trx)
+                            @php $returState = $trx->returnState(); @endphp
                             <tr>
-                                <td class="px-4 py-3 font-medium text-gray-900">{{ $trx->invoice_number }}</td>
+                                <td class="px-4 py-3 font-medium text-gray-900">
+                                    {{ $trx->invoice_number }}
+                                    @if (isset($returBadge[$returState]))
+                                        <span class="ml-1.5 inline-flex px-2 py-0.5 rounded-full text-[11px] font-semibold {{ $returBadge[$returState][1] }}">{{ $returBadge[$returState][0] }}</span>
+                                    @endif
+                                </td>
                                 <td class="px-4 py-3 text-gray-500">{{ $trx->created_at->format('d M Y, H:i') }}</td>
                                 <td class="px-4 py-3 text-center text-gray-500">{{ $trx->details_count }}</td>
                                 <td class="px-4 py-3 text-center">
@@ -126,9 +138,15 @@
                                     </span>
                                 </td>
                                 <td class="px-4 py-3 text-right text-gray-900 font-medium">Rp {{ number_format($trx->grand_total, 0, ',', '.') }}</td>
-                                <td class="px-4 py-3 text-right">
+                                <td class="px-4 py-3 text-right whitespace-nowrap">
                                     <a href="{{ route('kasir.riwayat.struk', $trx) }}" target="_blank"
                                        class="text-indigo-600 hover:text-indigo-900 font-medium">Cetak Ulang</a>
+                                    @if ($returState !== 'full')
+                                        <button type="button"
+                                                data-retur-open="{{ route('kasir.riwayat.retur.form', $trx) }}"
+                                                data-retur-invoice="{{ $trx->invoice_number }}"
+                                                class="ml-4 text-red-600 hover:text-red-800 font-medium">Retur</button>
+                                    @endif
                                 </td>
                             </tr>
                         @empty
@@ -145,10 +163,14 @@
             <!-- ====== Mobile: kartu (<768px) ====== -->
             <div class="md:hidden space-y-2.5">
                 @forelse ($transactions as $trx)
+                    @php $returState = $trx->returnState(); @endphp
                     <div class="bg-white border border-gray-200 rounded-xl p-3.5">
                         <div class="flex items-start justify-between gap-3">
                             <div class="min-w-0">
                                 <div class="font-semibold text-gray-900 text-sm truncate">{{ $trx->invoice_number }}</div>
+                                @if (isset($returBadge[$returState]))
+                                    <span class="inline-flex mt-1 px-2 py-0.5 rounded-full text-[11px] font-semibold {{ $returBadge[$returState][1] }}">{{ $returBadge[$returState][0] }}</span>
+                                @endif
                                 <div class="text-xs text-gray-400 mt-0.5">
                                     {{ $trx->created_at->format('d M Y, H:i') }} &middot; {{ $trx->details_count }} item
                                 </div>
@@ -164,10 +186,20 @@
                             <div class="text-base font-bold text-gray-900">
                                 Rp {{ number_format($trx->grand_total, 0, ',', '.') }}
                             </div>
-                            <a href="{{ route('kasir.riwayat.struk', $trx) }}" target="_blank"
-                               class="inline-flex items-center justify-center min-h-[44px] px-4 rounded-md text-sm font-semibold text-indigo-700 bg-indigo-50 hover:bg-indigo-100">
-                                Cetak Ulang
-                            </a>
+                            <div class="flex items-center gap-2">
+                                @if ($returState !== 'full')
+                                    <button type="button"
+                                            data-retur-open="{{ route('kasir.riwayat.retur.form', $trx) }}"
+                                            data-retur-invoice="{{ $trx->invoice_number }}"
+                                            class="inline-flex items-center justify-center min-h-[44px] px-4 rounded-md text-sm font-semibold text-red-700 bg-red-50 hover:bg-red-100">
+                                        Retur
+                                    </button>
+                                @endif
+                                <a href="{{ route('kasir.riwayat.struk', $trx) }}" target="_blank"
+                                   class="inline-flex items-center justify-center min-h-[44px] px-4 rounded-md text-sm font-semibold text-indigo-700 bg-indigo-50 hover:bg-indigo-100">
+                                    Cetak Ulang
+                                </a>
+                            </div>
                         </div>
                     </div>
                 @empty
@@ -180,4 +212,6 @@
             <div class="mt-4">{{ $transactions->links() }}</div>
         </div>
     </div>
+
+    @include('kasir.partials.retur-modal')
 </x-app-layout>

@@ -97,6 +97,10 @@
                 <x-icon name="cart" />
                 Purchase Order
             </a>
+            <a href="{{ route('admin.retur-penjualan.index') }}" class="flex items-center gap-3 px-4 py-3 rounded-lg text-sm font-medium text-gray-700 hover:bg-gray-50">
+                <x-icon name="archive" />
+                Retur Penjualan
+            </a>
             <a href="{{ route('admin.supplier.index') }}" class="flex items-center gap-3 px-4 py-3 rounded-lg text-sm font-medium text-gray-700 hover:bg-gray-50">
                 <x-icon name="truck" />
                 Supplier
