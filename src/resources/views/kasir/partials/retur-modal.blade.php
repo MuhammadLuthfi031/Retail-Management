@@ -1,13 +1,14 @@
 {{--
-    Cangkang modal retur penjualan — dipakai bersama oleh Riwayat Transaksi
-    (kasir & admin) dan halaman Retur Penjualan (admin). Isinya diambil saat
-    tombol [data-retur-open] diklik; logikanya di resources/js/retur-modal.js.
+    Cangkang modal retur — dipakai bersama oleh retur PENJUALAN (Riwayat Transaksi kasir & admin,
+    halaman Retur Penjualan admin) dan retur ke SUPPLIER (halaman detail PO admin & gudang).
+    Judul & isinya diambil saat tombol [data-retur-open] diklik (atribut data-retur-title /
+    data-retur-invoice); logikanya di resources/js/retur-modal.js.
     Buka/tutup mengikuti sistem modal bawaan (data-modal / data-modal-close / Esc).
 --}}
 <x-modal.modal name="retur" maxWidth="2xl">
     <div class="sticky top-0 z-10 bg-white flex items-center justify-between gap-3 px-5 py-4 border-b border-gray-100">
         <div class="min-w-0">
-            <h3 class="font-semibold text-gray-900">Retur Penjualan</h3>
+            <h3 class="font-semibold text-gray-900" data-retur-title>Retur Penjualan</h3>
             <p class="text-xs text-gray-500 truncate" data-retur-subtitle></p>
         </div>
         <button type="button" data-modal-close aria-label="Tutup"

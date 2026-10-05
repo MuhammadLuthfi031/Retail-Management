@@ -102,30 +102,83 @@ async function loadForm(url) {
     }
 }
 
+const fmtQty = (milli) => (milli / 1000).toLocaleString('id-ID', { maximumFractionDigits: 3 });
+
 /**
- * Hitung estimasi uang kembali & apakah ada qty valid. Rumus = SalesReturnService::refundFor():
- * proporsional terhadap subtotal baris, dan retur yang menghabiskan sisa qty mengambil SISA refund.
+ * Nilai satu baris, atau null kalau qty kosong/tidak valid.
+ *
+ * mode "supplier" (retur ke supplier): user memilih SATUAN retur; qty dikonversi ke satuan dasar
+ *   dan dibandingkan dengan sisa (satuan dasar). Rumus nilai = PurchaseReturnService::valueFor().
+ *   Baris untuk Gudang TIDAK punya atribut nilai (Gudang tidak boleh melihat uang) -> nilai 0.
+ * default (retur pelanggan): rumus = SalesReturnService::refundFor().
  */
+function evaluateLine(line) {
+    const input = line.querySelector('[data-retur-qty]');
+    if (!input) return null;
+
+    const q = Math.round((parseFloat(input.value) || 0) * 1000);
+    if (q <= 0) return null;
+
+    if (line.dataset.mode === 'supplier') {
+        const unit = line.querySelector('[data-retur-unit]');
+        const convMilli = parseInt(unit?.selectedOptions[0]?.dataset.conv, 10);
+        if (!convMilli) return null;
+
+        const baseMilli = Math.round((q * convMilli) / 1000);
+        const remaining = parseInt(line.dataset.remainingBase, 10);
+        if (baseMilli <= 0 || baseMilli > remaining) return null;
+
+        const received = parseInt(line.dataset.receivedBase, 10);
+        const totalValue = parseInt(line.dataset.totalValue, 10);
+        const remainingValue = parseInt(line.dataset.remainingValue, 10);
+        if (!received || Number.isNaN(totalValue) || Number.isNaN(remainingValue)) return { value: 0 };
+
+        return {
+            value: baseMilli === remaining
+                ? remainingValue
+                : Math.min(Math.round((totalValue * baseMilli) / received), remainingValue),
+        };
+    }
+
+    const remaining = parseInt(line.dataset.remaining, 10);
+    if (q > remaining) return null;
+
+    const sold = parseInt(line.dataset.sold, 10);
+    const subtotal = parseInt(line.dataset.subtotal, 10);
+    const remainingRefund = parseInt(line.dataset.remainingRefund, 10);
+
+    return {
+        value: q === remaining
+            ? remainingRefund
+            : Math.min(Math.round((subtotal * q) / sold), remainingRefund),
+    };
+}
+
+/** Petunjuk "Maks. N satuan" mengikuti satuan retur yang sedang dipilih (mode supplier). */
+function updateHint(line) {
+    const hint = line.querySelector('[data-retur-hint]');
+    const unit = line.querySelector('[data-retur-unit]');
+    if (!hint || !unit) return;
+
+    const convMilli = parseInt(unit.selectedOptions[0]?.dataset.conv, 10);
+    if (!convMilli) return;
+
+    const remaining = parseInt(line.dataset.remainingBase, 10);
+    const maxInUnit = Math.floor((remaining * 1000) / convMilli); // milli satuan terpilih, dibulatkan ke bawah
+    hint.textContent = 'Maks. ' + fmtQty(maxInUnit) + ' ' + (unit.selectedOptions[0].dataset.name || '');
+}
+
+/** Hitung total & apakah ada qty valid. */
 function compute(form) {
     let total = 0;
     let anyQty = false;
 
     form.querySelectorAll('[data-retur-line]').forEach((line) => {
-        const input = line.querySelector('[data-retur-qty]');
-        if (!input) return;
-
-        const q = Math.round((parseFloat(input.value) || 0) * 1000);
-        const remaining = parseInt(line.dataset.remaining, 10);
-        if (q <= 0 || q > remaining) return;
+        const result = evaluateLine(line);
+        if (!result) return;
 
         anyQty = true;
-        const sold = parseInt(line.dataset.sold, 10);
-        const subtotal = parseInt(line.dataset.subtotal, 10);
-        const remainingRefund = parseInt(line.dataset.remainingRefund, 10);
-
-        total += q === remaining
-            ? remainingRefund
-            : Math.min(Math.round((subtotal * q) / sold), remainingRefund);
+        total += result.value;
     });
 
     return { total, anyQty };
@@ -134,6 +187,7 @@ function compute(form) {
 /** Perbarui tampilan total + aktif/nonaktifkan tombol. */
 function recalc(form) {
     if (!form) return;
+    form.querySelectorAll('[data-retur-line][data-mode="supplier"]').forEach(updateHint);
     const { total, anyQty } = compute(form);
 
     const totalEl = form.querySelector('[data-retur-total]');
@@ -209,6 +263,8 @@ document.addEventListener('click', (e) => {
     if (opener) {
         const subtitle = modalEl()?.querySelector('[data-retur-subtitle]');
         if (subtitle) subtitle.textContent = opener.dataset.returInvoice || '';
+        const title = modalEl()?.querySelector('[data-retur-title]');
+        if (title) title.textContent = opener.dataset.returTitle || 'Retur Penjualan';
         openModal();
         loadForm(opener.dataset.returOpen);
         return;
@@ -220,6 +276,11 @@ document.addEventListener('click', (e) => {
 
 document.addEventListener('input', (e) => {
     if (e.target.matches('[data-retur-qty]')) recalc(e.target.closest('[data-retur-form]'));
+});
+
+// Ganti satuan retur (mode supplier) mengubah konversi -> hitung ulang.
+document.addEventListener('change', (e) => {
+    if (e.target.matches('[data-retur-unit]')) recalc(e.target.closest('[data-retur-form]'));
 });
 
 document.addEventListener('submit', (e) => {

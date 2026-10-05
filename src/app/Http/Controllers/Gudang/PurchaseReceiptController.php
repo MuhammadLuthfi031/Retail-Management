@@ -4,6 +4,7 @@ namespace App\Http\Controllers\Gudang;
 
 use App\Http\Controllers\Controller;
 use App\Models\PurchaseOrder;
+use App\Services\PurchaseReturnService;
 use App\Models\PurchaseOrderReceipt;
 use App\Models\StockMovement;
 use Illuminate\Http\RedirectResponse;
@@ -46,9 +47,16 @@ class PurchaseReceiptController extends Controller
         // ulang, bukan jadi jalan buntu begitu status berubah jadi selesai.
         $canReceive = in_array($pembelian->status, ['ordered', 'partially_received'], true);
 
-        $pembelian->load(['supplier', 'items.product', 'items.productUnit', 'receipts.receivedBy']);
+        $pembelian->load([
+            'supplier', 'items.product', 'items.productUnit', 'receipts.receivedBy',
+            'purchaseReturns.items', 'purchaseReturns.user:id,name',
+        ]);
 
-        return view('gudang.pembelian.show', ['po' => $pembelian, 'canReceive' => $canReceive]);
+        return view('gudang.pembelian.show', [
+            'po' => $pembelian,
+            'canReceive' => $canReceive,
+            'canReturn' => app(PurchaseReturnService::class)->canReturn($pembelian),
+        ]);
     }
 
     public function store(Request $request, PurchaseOrder $pembelian): RedirectResponse

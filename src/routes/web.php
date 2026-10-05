@@ -3,12 +3,14 @@
 use App\Http\Controllers\Admin\LaporanController;
 use App\Http\Controllers\Admin\DashboardController;
 use App\Http\Controllers\Admin\PurchaseOrderController;
+use App\Http\Controllers\Admin\PurchaseReturnController;
 use App\Http\Controllers\Admin\SalesReturnController;
 use App\Http\Controllers\Admin\SupplierController;
 use App\Http\Controllers\Admin\UserController;
 use App\Http\Controllers\Gudang\CategoryController;
 use App\Http\Controllers\Gudang\ProductController;
 use App\Http\Controllers\Gudang\PurchaseReceiptController;
+use App\Http\Controllers\Gudang\ReturSupplierController;
 use App\Http\Controllers\Gudang\StockController;
 use App\Http\Controllers\Kasir\PosController;
 use App\Http\Controllers\Kasir\RiwayatController;
@@ -76,6 +78,10 @@ Route::middleware(['auth', 'no-cache'])->group(function () {
             Route::get('/', [PurchaseReceiptController::class, 'index'])->name('index');
             Route::get('/{pembelian}', [PurchaseReceiptController::class, 'show'])->name('show');
             Route::post('/{pembelian}', [PurchaseReceiptController::class, 'store'])->name('store');
+
+            // Retur ke supplier dari modal di halaman detail PO (Gudang + Admin; stok langsung berkurang).
+            Route::get('/{pembelian}/retur', [ReturSupplierController::class, 'form'])->name('retur.form');
+            Route::post('/{pembelian}/retur', [ReturSupplierController::class, 'store'])->name('retur.store');
         });
     });
 
@@ -91,6 +97,14 @@ Route::middleware(['auth', 'no-cache'])->group(function () {
             Route::get('/laba-rugi/pdf', [LaporanController::class, 'labaRugiPdf'])->name('laba-rugi.pdf');
             Route::get('/stok', [LaporanController::class, 'stok'])->name('stok');
             Route::get('/stok/pdf', [LaporanController::class, 'stokPdf'])->name('stok.pdf');
+        });
+
+        // Daftar, detail & penyelesaian retur ke supplier — hanya Admin (data finansial).
+        // Membuat retur ada di modal halaman detail PO (route gudang.pembelian.retur.*).
+        Route::prefix('retur-pembelian')->name('retur-pembelian.')->group(function () {
+            Route::get('/', [PurchaseReturnController::class, 'index'])->name('index');
+            Route::get('/{purchaseReturn}', [PurchaseReturnController::class, 'show'])->name('show');
+            Route::put('/{purchaseReturn}/selesai', [PurchaseReturnController::class, 'settle'])->name('settle');
         });
 
         // Daftar & detail retur penjualan dari SEMUA kasir — hanya Admin. Memproses

@@ -9,6 +9,7 @@ use App\Models\PurchaseOrder;
 use App\Models\PurchaseOrderItem;
 use App\Models\PurchaseOrderPayment;
 use App\Models\Supplier;
+use App\Services\PurchaseReturnService;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
@@ -36,11 +37,20 @@ class PurchaseOrderController extends Controller
 
     public function show(PurchaseOrder $pembelian): View
     {
-        $pembelian->load(['supplier', 'createdBy', 'items.product', 'items.productUnit', 'items.receivedBy', 'payments.uploadedBy', 'receipts.receivedBy']);
+        $pembelian->load([
+            'supplier', 'createdBy', 'items.product', 'items.productUnit', 'items.receivedBy',
+            'payments.uploadedBy', 'receipts.receivedBy',
+            'purchaseReturns.items', 'purchaseReturns.user:id,name',
+        ]);
         $suppliers = Supplier::active()->orderBy('name')->get();
         $products = $this->productsForForm();
 
-        return view('admin.pembelian.show', ['po' => $pembelian, 'suppliers' => $suppliers, 'products' => $products]);
+        return view('admin.pembelian.show', [
+            'po' => $pembelian,
+            'suppliers' => $suppliers,
+            'products' => $products,
+            'canReturn' => app(PurchaseReturnService::class)->canReturn($pembelian),
+        ]);
     }
 
     public function store(Request $request): RedirectResponse

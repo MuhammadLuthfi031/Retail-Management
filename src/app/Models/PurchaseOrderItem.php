@@ -46,6 +46,11 @@ class PurchaseOrderItem extends Model
         return $this->belongsTo(User::class, 'received_by');
     }
 
+    public function returnItems()
+    {
+        return $this->hasMany(PurchaseReturnItem::class);
+    }
+
     public function isFullyReceived(): bool
     {
         return $this->quantity_received >= $this->quantity_ordered;

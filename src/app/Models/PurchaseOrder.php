@@ -55,6 +55,11 @@ class PurchaseOrder extends Model
         return $this->hasMany(PurchaseOrderReceipt::class)->latest();
     }
 
+    public function purchaseReturns()
+    {
+        return $this->hasMany(PurchaseReturn::class)->latest('id');
+    }
+
     /**
      * Urutan (rank) status pembayaran — dipakai untuk memastikan status
      * pembayaran CUMA BISA MAJU (unpaid -> partial -> paid, atau langsung
