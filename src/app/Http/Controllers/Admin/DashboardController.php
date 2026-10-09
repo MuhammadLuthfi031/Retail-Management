@@ -7,13 +7,17 @@ use App\Models\Product;
 use App\Models\PurchaseOrderItem;
 use App\Models\Transaction;
 use App\Models\TransactionDetail;
+use App\Services\SalesReturnReport;
 use Carbon\Carbon;
 use Illuminate\Http\Request;
 use Illuminate\Support\Collection;
 use Illuminate\View\View;
 
 /**
- * Dashboard Admin (§7.1 spesifikasi). Prinsip desain: dashboard ini untuk
+ * Dashboard Admin (§7.1 spesifikasi). Angka penjualan di sini BERSIH: dikurangi retur pelanggan
+ * (menurut tanggal retur) lewat SalesReturnReport — sama persis dengan Modul Laporan.
+ *
+ * Prinsip desain: dashboard ini untuk
  * "sekali lihat langsung paham", BUKAN alat analisis mendalam (itu sudah ada
  * tempatnya di Modul Laporan). Karena itu rentang waktu grafik/list di sini
  * sengaja dibatasi cuma 2 pilihan (7/30 hari), bukan filter tanggal bebas.
@@ -53,12 +57,19 @@ class DashboardController extends Controller
         // tidak dipakai sama sekali di sini.
         $summary = $base()->toBase()->selectRaw('COUNT(*) as jumlah, COALESCE(SUM(grand_total), 0) as total')->first();
         $jumlahTransaksi = (int) $summary->jumlah;
-        $omzet = (int) $summary->total;
+        $omzetKotor = (int) $summary->total;
+
+        // Retur yang TERJADI hari ini (apa pun tanggal jual transaksinya).
+        $retur = SalesReturnReport::summary(Carbon::today(), Carbon::today()->endOfDay());
 
         return [
-            'omzet' => $omzet,
+            'omzet' => $omzetKotor - $retur['total'], // BERSIH
+            'omzet_kotor' => $omzetKotor,
+            'retur' => $retur['total'],
+            'jumlah_retur' => $retur['count'],
             'jumlah_transaksi' => $jumlahTransaksi,
-            'rata_rata' => $jumlahTransaksi > 0 ? (int) round($omzet / $jumlahTransaksi) : 0,
+            // Rata-rata = nilai keranjang saat penjualan (kotor), sama seperti Laporan Penjualan.
+            'rata_rata' => $jumlahTransaksi > 0 ? (int) round($omzetKotor / $jumlahTransaksi) : 0,
             'stok_menipis_count' => Product::active()->lowStock()->count(),
         ];
     }
@@ -72,7 +83,9 @@ class DashboardController extends Controller
             ->groupBy('tanggal')
             ->get();
 
-        return $this->buildDailySeries($rows, $from, $to);
+        // Neto per hari: penjualan hari itu dikurangi retur yang terjadi hari itu. Bisa negatif bila
+        // retur hari itu lebih besar dari penjualannya — sengaja TIDAK dipotong ke 0 (angka jujur).
+        return $this->buildDailySeries($rows, $from, $to, SalesReturnReport::perDate($from, $to));
     }
 
     /**
@@ -101,25 +114,33 @@ class DashboardController extends Controller
         return $this->buildDailySeries($rows, $from, $to);
     }
 
-    /** Isi tanggal yang kosong dengan 0, supaya grafik tidak bolong/miring. */
-    private function buildDailySeries(Collection $rows, Carbon $from, Carbon $to): array
+    /** Isi tanggal yang kosong dengan 0, supaya grafik tidak bolong/miring. $subtract (opsional) dikurangkan per tanggal. */
+    private function buildDailySeries(Collection $rows, Carbon $from, Carbon $to, ?Collection $subtract = null): array
     {
         $byDate = $rows->keyBy('tanggal');
+        $minus = $subtract?->keyBy('tanggal');
         $labels = [];
         $values = [];
 
         for ($date = $from->copy(); $date->lte($to); $date->addDay()) {
             $key = $date->toDateString();
             $labels[] = $date->format('d M');
-            $values[] = isset($byDate[$key]) ? (int) round((float) $byDate[$key]->total) : 0;
+            $values[] = (isset($byDate[$key]) ? (int) round((float) $byDate[$key]->total) : 0)
+                - (isset($minus[$key]) ? (int) round((float) $minus[$key]->total) : 0);
         }
 
         return ['labels' => $labels, 'values' => $values];
     }
 
-    /** Top 5 produk berdasar OMZET (bukan qty mentah — qty tidak bisa dibandingkan antar produk beda satuan). */
+    /**
+     * Top 5 produk berdasar OMZET BERSIH (bukan qty mentah — qty tidak bisa dibandingkan antar produk
+     * beda satuan). Retur dikurangkan SEBELUM dipotong 5 teratas karena retur bisa mengubah peringkat;
+     * produk dengan omzet bersih nol/negatif tidak ikut.
+     */
     private function produkTerlaris(Carbon $from, Carbon $to): Collection
     {
+        $returPerProduk = SalesReturnReport::perProduct($from, $to);
+
         return TransactionDetail::query()
             ->join('transactions', 'transactions.id', '=', 'transaction_details.transaction_id')
             ->where('transactions.status', 'completed')
@@ -130,9 +151,21 @@ class DashboardController extends Controller
             // dan membuat peringkat Top 5 berbeda dari yang tampil di Laporan.
             ->selectRaw('transaction_details.product_id, transaction_details.product_name, SUM(transaction_details.subtotal) as total_omzet, SUM(transaction_details.quantity) as total_qty')
             ->groupBy('transaction_details.product_id', 'transaction_details.product_name')
-            ->orderByDesc('total_omzet')
-            ->limit(5)
-            ->get();
+            ->get()
+            ->map(function ($row) use ($returPerProduk) {
+                $ret = $returPerProduk->get(SalesReturnReport::key($row));
+
+                return (object) [
+                    'product_id' => (int) $row->product_id,
+                    'product_name' => $row->product_name,
+                    'total_omzet' => (int) $row->total_omzet - ($ret->omzet ?? 0),
+                    'total_qty' => (float) $row->total_qty - ($ret->qty_unit ?? 0),
+                ];
+            })
+            ->filter(fn ($row) => $row->total_omzet > 0)
+            ->sortByDesc('total_omzet')
+            ->take(5)
+            ->values();
     }
 
     /** Aktivitas terbaru — selalu "10 transaksi terakhir", tidak ikut toggle periode. */

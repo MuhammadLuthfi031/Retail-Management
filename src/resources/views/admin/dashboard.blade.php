@@ -19,6 +19,9 @@
                         <div>
                             <div class="text-xs text-gray-400">Omzet Hari Ini</div>
                             <div class="text-xl font-semibold text-gray-900">Rp {{ number_format($kpi['omzet'], 0, ',', '.') }}</div>
+                            @if ($kpi['retur'] > 0)
+                                <div class="text-[11px] text-red-600 mt-0.5">sudah dikurangi retur Rp {{ number_format($kpi['retur'], 0, ',', '.') }}</div>
+                            @endif
                         </div>
                     </div>
                 </div>

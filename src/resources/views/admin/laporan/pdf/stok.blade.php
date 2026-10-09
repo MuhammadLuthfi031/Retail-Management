@@ -36,7 +36,7 @@
 
     <table class="data" style="margin-bottom: 16px;">
         <thead>
-            <tr><th colspan="2">Produk Terlaris (periode di atas)</th></tr>
+            <tr><th colspan="2">Produk Terlaris (periode di atas, bersih setelah retur)</th></tr>
             <tr>
                 <th>Produk</th>
                 <th class="right">Omzet</th>

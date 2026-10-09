@@ -17,15 +17,23 @@
 
     <table class="summary">
         <tr>
-            <td style="width: 33%;">
-                <span class="label">Total Omzet</span>
+            <td style="width: 20%;">
+                <span class="label">Penjualan Kotor</span>
+                <span class="value">Rp {{ number_format($penjualan_kotor, 0, ',', '.') }}</span>
+            </td>
+            <td style="width: 20%;">
+                <span class="label">Retur ({{ number_format($jumlah_retur, 0, ',', '.') }})</span>
+                <span class="value">{{ $total_retur > 0 ? '- ' : '' }}Rp {{ number_format($total_retur, 0, ',', '.') }}</span>
+            </td>
+            <td style="width: 20%;">
+                <span class="label">Total Omzet (Bersih)</span>
                 <span class="value">Rp {{ number_format($total_omzet, 0, ',', '.') }}</span>
             </td>
-            <td style="width: 33%;">
+            <td style="width: 20%;">
                 <span class="label">Jumlah Transaksi</span>
                 <span class="value">{{ number_format($jumlah_transaksi, 0, ',', '.') }}</span>
             </td>
-            <td style="width: 34%;">
+            <td style="width: 20%;">
                 <span class="label">Rata-rata / Transaksi</span>
                 <span class="value">Rp {{ number_format($rata_rata, 0, ',', '.') }}</span>
             </td>

@@ -1,149 +1,170 @@
-@php
-    $typeLabel = [
-        'in' => 'Masuk',
-        'out' => 'Keluar',
-        'mutation' => 'Mutasi',
-        'adjustment' => 'Opname',
-        'sale' => 'Penjualan',
-        'return_in' => 'Retur Pelanggan',
-        'return_out' => 'Retur ke Supplier',
-    ];
-    $typeColor = [
-        'in' => 'bg-emerald-100 text-emerald-700',
-        'out' => 'bg-red-100 text-red-700',
-        'mutation' => 'bg-blue-100 text-blue-700',
-        'adjustment' => 'bg-amber-100 text-amber-700',
-        'sale' => 'bg-purple-100 text-purple-700',
-        'return_in' => 'bg-teal-100 text-teal-700',
-        'return_out' => 'bg-orange-100 text-orange-700',
-    ];
-@endphp
-
 <x-app-layout>
     <x-slot name="header">
         <div>
-            <a href="{{ route('gudang.stok.index') }}" class="text-xs text-indigo-600 hover:underline">&larr; Kembali ke daftar stok</a>
-            <h2 class="font-semibold text-xl text-gray-800 leading-tight mt-1">Riwayat Stok — {{ $product->name }}</h2>
+            <a href="{{ route('gudang.pembelian.index') }}" class="text-xs text-indigo-600 hover:underline">&larr; Kembali ke daftar penerimaan</a>
+            <h2 class="font-semibold text-xl text-gray-800 leading-tight mt-1">Terima Barang — {{ $po->po_number }}</h2>
         </div>
     </x-slot>
 
     <div class="py-8">
-        <div class="max-w-5xl mx-auto sm:px-6 lg:px-8 space-y-4">
+        <div class="max-w-5xl mx-auto sm:px-6 lg:px-8 space-y-6">
             <x-alert />
 
-            <div class="bg-white shadow-sm sm:rounded-lg p-4 flex flex-wrap items-center gap-4 text-sm">
+            @error('received')
+                <div class="rounded-md bg-red-50 border border-red-200 px-4 py-3 text-sm text-red-700">{{ $message }}</div>
+            @enderror
+
+            <div class="bg-white shadow-sm sm:rounded-lg p-6 text-sm grid grid-cols-1 sm:grid-cols-3 gap-4">
                 <div>
-                    <span class="text-xs text-gray-400 uppercase block">Stok Saat Ini</span>
-                    <span class="font-semibold text-gray-900">
-                        {{ $product->formatStock((float) $product->stock) }}
-                    </span>
+                    <div class="text-xs text-gray-400 uppercase">Supplier</div>
+                    <div class="font-medium text-gray-900">{{ $po->supplier->name ?? '—' }}</div>
                 </div>
                 <div>
-                    <span class="text-xs text-gray-400 uppercase block">Harga Pokok Rata-Rata</span>
-                    <span class="font-semibold text-gray-900">Rp {{ number_format($product->average_cost, 0, ',', '.') }}</span>
+                    <div class="text-xs text-gray-400 uppercase">Target Terima</div>
+                    <div class="font-medium text-gray-900">{{ $po->expected_date?->format('d M Y') ?? '—' }}</div>
                 </div>
-
-                <form method="GET" class="ml-auto flex items-center gap-2">
-                    <label class="text-xs text-gray-500">Filter Tipe:</label>
-                    <select name="type" onchange="this.form.submit()" class="rounded-md border-gray-300 text-xs focus:border-indigo-500 focus:ring-indigo-500">
-                        <option value="">Semua</option>
-                        @foreach ($typeLabel as $key => $label)
-                            <option value="{{ $key }}" @selected(request('type') === $key)>{{ $label }}</option>
-                        @endforeach
-                    </select>
-                </form>
+                <div>
+                    <div class="text-xs text-gray-400 uppercase">Catatan PO</div>
+                    <div class="font-medium text-gray-900">{{ $po->note ?: '—' }}</div>
+                </div>
             </div>
 
-            <!-- Tabel — desktop/tablet (≥768px), tidak berubah -->
-            <div class="hidden md:block bg-white shadow-sm sm:rounded-lg overflow-hidden overflow-x-auto">
-                <table class="min-w-full divide-y divide-gray-200 text-sm">
-                    <thead class="bg-gray-50">
-                        <tr>
-                            <th class="px-4 py-3 text-left font-medium text-gray-500 uppercase tracking-wider">Tanggal</th>
-                            <th class="px-4 py-3 text-center font-medium text-gray-500 uppercase tracking-wider">Tipe</th>
-                            <th class="px-4 py-3 text-right font-medium text-gray-500 uppercase tracking-wider">Qty</th>
-                            <th class="px-4 py-3 text-right font-medium text-gray-500 uppercase tracking-wider">Sebelum &rarr; Sesudah</th>
-                            <th class="px-4 py-3 text-left font-medium text-gray-500 uppercase tracking-wider">Catatan</th>
-                            <th class="px-4 py-3 text-left font-medium text-gray-500 uppercase tracking-wider">Oleh</th>
-                        </tr>
-                    </thead>
-                    <tbody class="divide-y divide-gray-100">
-                        @forelse ($movements as $m)
-                            @php $increased = $m->stock_after > $m->stock_before; @endphp
+            @unless ($canReceive)
+                <div class="rounded-md bg-emerald-50 border border-emerald-200 px-4 py-3 text-sm text-emerald-700">
+                    PO ini sudah <strong>diterima lengkap</strong> — halaman ini sekarang cuma menampilkan riwayat, tidak bisa menerima barang lagi.
+                </div>
+            @endunless
+
+            <form method="POST" action="{{ route('gudang.pembelian.store', $po) }}" enctype="multipart/form-data">
+                @csrf
+
+                <!-- Tabel — desktop/tablet (≥768px), tidak berubah -->
+                <div id="terimaDesktopFields" class="hidden md:block bg-white shadow-sm sm:rounded-lg overflow-hidden overflow-x-auto">
+                    <table class="min-w-full divide-y divide-gray-200 text-sm">
+                        <thead class="bg-gray-50">
                             <tr>
-                                <td class="px-4 py-3 text-gray-500 whitespace-nowrap">{{ $m->created_at->format('d M Y H:i') }}</td>
-                                <td class="px-4 py-3 text-center">
-                                    <span class="inline-flex px-2.5 py-0.5 rounded-full text-xs font-medium {{ $typeColor[$m->type] }}">
-                                        {{ $typeLabel[$m->type] }}
-                                    </span>
-                                </td>
-                                <td class="px-4 py-3 text-right font-medium {{ $increased ? 'text-emerald-600' : 'text-red-600' }}">
-                                    {{ $increased ? '+' : '-' }}{{ $product->formatStock((float) $m->quantity) }}
-                                </td>
-                                <td class="px-4 py-3 text-right text-gray-500 whitespace-nowrap">
-                                    {{ $product->formatStock((float) $m->stock_before) }}
-                                    &rarr;
-                                    {{ $product->formatStock((float) $m->stock_after) }}
-                                </td>
-                                <td class="px-4 py-3 text-gray-500 max-w-xs">
-                                    {{ $m->note }}
-                                    @if ($m->reference)
-                                        <div class="text-xs text-gray-400">Ref: {{ $m->reference }}</div>
-                                    @endif
-                                </td>
-                                <td class="px-4 py-3 text-gray-500">{{ $m->user->name ?? '—' }}</td>
-                            </tr>
-                        @empty
-                            <tr>
-                                <td colspan="6" class="px-6 py-10 text-center text-gray-400">Belum ada riwayat pergerakan stok untuk produk ini.</td>
-                            </tr>
-                        @endforelse
-                    </tbody>
-                </table>
-            </div>
-
-            <!-- Kartu — mobile (<768px), data sama persis dengan tabel di atas -->
-            <div class="md:hidden space-y-2.5">
-                @forelse ($movements as $m)
-                    @php $increased = $m->stock_after > $m->stock_before; @endphp
-                    <div class="bg-white border border-gray-200 rounded-lg p-3">
-                        <div class="flex items-center justify-between gap-2">
-                            <span class="inline-flex px-2.5 py-0.5 rounded-full text-xs font-medium {{ $typeColor[$m->type] }}">
-                                {{ $typeLabel[$m->type] }}
-                            </span>
-                            <span class="text-xs text-gray-400 whitespace-nowrap">{{ $m->created_at->format('d M Y H:i') }}</span>
-                        </div>
-
-                        <div class="mt-2 flex items-end justify-between gap-2">
-                            <div class="text-xs text-gray-500">
-                                {{ $product->formatStock((float) $m->stock_before) }}
-                                &rarr;
-                                {{ $product->formatStock((float) $m->stock_after) }}
-                            </div>
-                            <div class="font-semibold {{ $increased ? 'text-emerald-600' : 'text-red-600' }}">
-                                {{ $increased ? '+' : '-' }}{{ $product->formatStock((float) $m->quantity) }}
-                            </div>
-                        </div>
-
-                        @if ($m->note || $m->reference)
-                            <div class="mt-2 pt-2 border-t border-dashed border-gray-200 text-xs text-gray-500">
-                                {{ $m->note }}
-                                @if ($m->reference)
-                                    <div class="text-gray-400">Ref: {{ $m->reference }}</div>
+                                <th class="px-4 py-3 text-left font-medium text-gray-500 uppercase tracking-wider">Produk</th>
+                                <th class="px-4 py-3 text-left font-medium text-gray-500 uppercase tracking-wider">Satuan</th>
+                                <th class="px-4 py-3 text-right font-medium text-gray-500 uppercase tracking-wider">Dipesan</th>
+                                <th class="px-4 py-3 text-right font-medium text-gray-500 uppercase tracking-wider">Sudah Diterima</th>
+                                <th class="px-4 py-3 text-right font-medium text-gray-500 uppercase tracking-wider">Sisa</th>
+                                @if ($canReceive)
+                                    <th class="px-4 py-3 text-right font-medium text-gray-500 uppercase tracking-wider">Terima Sekarang</th>
                                 @endif
+                            </tr>
+                        </thead>
+                        <tbody class="divide-y divide-gray-100">
+                            @foreach ($po->items as $item)
+                                @php $remaining = $item->remainingQuantity(); @endphp
+                                <tr>
+                                    <td class="px-4 py-3 font-medium text-gray-900">{{ $item->product->name }}</td>
+                                    <td class="px-4 py-3 text-gray-500">{{ $item->productUnit->unit_name }}</td>
+                                    <td class="px-4 py-3 text-right text-gray-500">{{ \App\Support\Number::trim((float) $item->quantity_ordered) }}</td>
+                                    <td class="px-4 py-3 text-right text-gray-500">{{ \App\Support\Number::trim((float) $item->quantity_received) }}</td>
+                                    <td class="px-4 py-3 text-right text-gray-500">{{ \App\Support\Number::trim($remaining) }}</td>
+                                    @if ($canReceive)
+                                        <td class="px-4 py-3 text-right">
+                                            @if ($remaining > 0)
+                                                <input type="number" step="0.001" min="0" max="{{ $remaining }}"
+                                                       name="received[{{ $item->id }}]" value="{{ old('received.' . $item->id, '') }}"
+                                                       placeholder="0" class="w-28 rounded-md border-gray-300 shadow-sm text-sm text-right focus:border-indigo-500 focus:ring-indigo-500">
+                                            @else
+                                                <span class="text-xs text-emerald-600 font-medium">Lengkap</span>
+                                            @endif
+                                        </td>
+                                    @endif
+                                </tr>
+                            @endforeach
+                        </tbody>
+                    </table>
+                </div>
+
+                <!-- Kartu — mobile (<768px): input qty SAMA persis (name, id, max, old())
+                     supaya submit form tetap jalan identik dengan versi tabel di atas.
+                     PENTING: karena berbagi 1 <form> dengan tabel desktop di atas dan
+                     name="received[...]" nya SENGAJA sama, dua wrapper ini (id
+                     terimaDesktopFields & terimaMobileFields) WAJIB tetap punya id itu —
+                     purchase-receipt-form.js menonaktifkan (disabled) input pada wrapper
+                     yang sedang tidak terlihat, supaya browser tidak ikut mengirim nilai
+                     kosong dari versi yang tersembunyi dan menimpa balik nilai yang sudah
+                     diisi di versi yang terlihat. Lihat komentar lengkap di file JS itu. -->
+                <div id="terimaMobileFields" class="md:hidden space-y-2.5">
+                    @foreach ($po->items as $item)
+                        @php $remaining = $item->remainingQuantity(); @endphp
+                        <div class="bg-white border border-gray-200 rounded-lg p-3">
+                            <div class="flex items-center justify-between gap-2">
+                                <div class="font-medium text-gray-900 truncate">{{ $item->product->name }}</div>
+                                <span class="flex-none text-[10.5px] px-2 py-0.5 rounded-full bg-gray-100 text-gray-600 font-medium">{{ $item->productUnit->unit_name }}</span>
                             </div>
-                        @endif
+                            <div class="mt-2.5 pt-2.5 border-t border-dashed border-gray-200 grid grid-cols-3 gap-2 text-xs text-center">
+                                <div>
+                                    <div class="text-gray-400">Dipesan</div>
+                                    <div class="text-gray-700 font-medium mt-0.5">{{ \App\Support\Number::trim((float) $item->quantity_ordered) }}</div>
+                                </div>
+                                <div>
+                                    <div class="text-gray-400">Diterima</div>
+                                    <div class="text-gray-700 font-medium mt-0.5">{{ \App\Support\Number::trim((float) $item->quantity_received) }}</div>
+                                </div>
+                                <div>
+                                    <div class="text-gray-400">Sisa</div>
+                                    <div class="text-gray-700 font-medium mt-0.5">{{ \App\Support\Number::trim($remaining) }}</div>
+                                </div>
+                            </div>
+                            @if ($canReceive)
+                                <div class="mt-2.5 pt-2.5 border-t border-dashed border-gray-200">
+                                    @if ($remaining > 0)
+                                        <label class="block text-xs font-medium text-gray-500 mb-1">Terima Sekarang</label>
+                                        <input type="number" step="0.001" min="0" max="{{ $remaining }}"
+                                               name="received[{{ $item->id }}]" value="{{ old('received.' . $item->id, '') }}"
+                                               placeholder="0" class="w-full rounded-md border-gray-300 shadow-sm text-sm focus:border-indigo-500 focus:ring-indigo-500">
+                                    @else
+                                        <span class="text-xs text-emerald-600 font-medium">✓ Lengkap</span>
+                                    @endif
+                                </div>
+                            @endif
+                        </div>
+                    @endforeach
+                </div>
 
-                        <div class="mt-1.5 text-[11px] text-gray-400">Oleh {{ $m->user->name ?? '—' }}</div>
+                @if ($canReceive)
+                    <div class="bg-white shadow-sm sm:rounded-lg p-6 mt-4">
+                        <label class="block text-sm font-medium text-gray-700 mb-1">Bukti Penerimaan Barang</label>
+                        <p class="text-xs text-gray-400 mb-2">Foto fisik barang datang / nota pengiriman dari supplier. Wajib diisi sebelum konfirmasi.</p>
+                        <input type="file" name="proof" required accept="image/jpeg,image/png,image/webp"
+                               class="w-full text-sm text-gray-600 file:mr-3 file:py-1.5 file:px-3 file:rounded-md file:border-0 file:text-xs file:font-semibold file:bg-indigo-50 file:text-indigo-700 hover:file:bg-indigo-100">
+                        <p class="text-xs text-gray-400 mt-1">Format JPG/PNG/WEBP, maksimal 2MB.</p>
+                        @error('proof')
+                            <p class="text-xs text-red-600 mt-1">{{ $message }}</p>
+                        @enderror
                     </div>
-                @empty
-                    <div class="bg-white border border-gray-200 rounded-lg p-6 text-center text-gray-400 text-sm">
-                        Belum ada riwayat pergerakan stok untuk produk ini.
-                    </div>
-                @endforelse
-            </div>
 
-            <div>{{ $movements->links() }}</div>
+                    <div class="flex justify-end mt-4">
+                        <x-primary-button>Konfirmasi Penerimaan</x-primary-button>
+                    </div>
+                @endif
+            </form>
+
+            @if ($po->receipts->isNotEmpty())
+                <div class="bg-white shadow-sm sm:rounded-lg p-6">
+                    <h3 class="text-sm font-semibold text-gray-700 mb-3">Riwayat Bukti Penerimaan</h3>
+                    <ul class="divide-y divide-gray-100 text-sm">
+                        @foreach ($po->receipts as $receipt)
+                            <li class="py-2.5 flex items-center justify-between gap-3">
+                                <div class="text-xs text-gray-400">
+                                    {{ $receipt->receivedBy->name ?? '—' }} &middot; {{ $receipt->created_at->format('d M Y H:i') }}
+                                </div>
+                                <a href="{{ Storage::url($receipt->proof_path) }}" target="_blank" rel="noopener" class="text-indigo-600 hover:underline text-xs font-medium shrink-0">
+                                    Lihat Bukti
+                                </a>
+                            </li>
+                        @endforeach
+                    </ul>
+                </div>
+            @endif
+
+            @include('gudang.partials.retur-supplier-card', ['po' => $po, 'canReturn' => $canReturn, 'showValues' => false])
         </div>
     </div>
+
+    @include('kasir.partials.retur-modal')
 </x-app-layout>

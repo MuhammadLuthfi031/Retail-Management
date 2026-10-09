@@ -1,337 +1,149 @@
 @php
-    $statusLabel = [
-        'draft' => 'Draft',
-        'ordered' => 'Dipesan',
-        'partially_received' => 'Diterima Sebagian',
-        'received' => 'Diterima Lengkap',
-        'cancelled' => 'Dibatalkan',
+    $typeLabel = [
+        'in' => 'Masuk',
+        'out' => 'Keluar',
+        'mutation' => 'Mutasi',
+        'adjustment' => 'Opname',
+        'sale' => 'Penjualan',
+        'return_in' => 'Retur Pelanggan',
+        'return_out' => 'Retur ke Supplier',
     ];
-    $statusColor = [
-        'draft' => 'bg-gray-100 text-gray-600',
-        'ordered' => 'bg-blue-100 text-blue-700',
-        'partially_received' => 'bg-amber-100 text-amber-700',
-        'received' => 'bg-emerald-100 text-emerald-700',
-        'cancelled' => 'bg-red-100 text-red-700',
+    $typeColor = [
+        'in' => 'bg-emerald-100 text-emerald-700',
+        'out' => 'bg-red-100 text-red-700',
+        'mutation' => 'bg-blue-100 text-blue-700',
+        'adjustment' => 'bg-amber-100 text-amber-700',
+        'sale' => 'bg-purple-100 text-purple-700',
+        'return_in' => 'bg-teal-100 text-teal-700',
+        'return_out' => 'bg-orange-100 text-orange-700',
     ];
-    $paymentLabel = ['unpaid' => 'Belum Lunas', 'partial' => 'Sebagian', 'paid' => 'Lunas'];
-    $canEdit = $po->status === 'draft';
-    // Selaras dengan PurchaseOrderController::destroy(): draft DAN belum ada riwayat bayar.
-    $canDelete = $canEdit && $po->payment_status === 'unpaid';
-    $canCancel = in_array($po->status, ['draft', 'ordered'], true) && ! $po->items->contains(fn ($i) => $i->quantity_received > 0);
 @endphp
 
 <x-app-layout>
     <x-slot name="header">
-        <div class="flex items-center justify-between">
-            <div>
-                <a href="{{ route('admin.pembelian.index') }}" class="text-xs text-indigo-600 hover:underline">&larr; Kembali ke daftar PO</a>
-                <h2 class="font-semibold text-xl text-gray-800 leading-tight mt-1">{{ $po->po_number }}</h2>
-            </div>
-            <span class="inline-flex px-3 py-1 rounded-full text-xs font-medium {{ $statusColor[$po->status] }}">
-                {{ $statusLabel[$po->status] }}
-            </span>
+        <div>
+            <a href="{{ route('gudang.stok.index') }}" class="text-xs text-indigo-600 hover:underline">&larr; Kembali ke daftar stok</a>
+            <h2 class="font-semibold text-xl text-gray-800 leading-tight mt-1">Riwayat Stok — {{ $product->name }}</h2>
         </div>
     </x-slot>
 
     <div class="py-8">
-        <div class="max-w-5xl mx-auto sm:px-6 lg:px-8 space-y-6">
+        <div class="max-w-5xl mx-auto sm:px-6 lg:px-8 space-y-4">
             <x-alert />
 
-            <!-- Info & Aksi -->
-            <div class="bg-white shadow-sm sm:rounded-lg p-6">
-                <div class="grid grid-cols-1 sm:grid-cols-4 gap-4 text-sm mb-4">
-                    <div>
-                        <div class="text-xs text-gray-400 uppercase">Supplier</div>
-                        <div class="font-medium text-gray-900">{{ $po->supplier->name ?? '—' }}</div>
-                    </div>
-                    <div>
-                        <div class="text-xs text-gray-400 uppercase">Dibuat Oleh</div>
-                        <div class="font-medium text-gray-900">{{ $po->createdBy->name ?? '—' }}</div>
-                    </div>
-                    <div>
-                        <div class="text-xs text-gray-400 uppercase">Tgl Pesan</div>
-                        <div class="font-medium text-gray-900">{{ $po->order_date->format('d M Y') }}</div>
-                    </div>
-                    <div>
-                        <div class="text-xs text-gray-400 uppercase">Target Terima</div>
-                        <div class="font-medium text-gray-900">{{ $po->expected_date?->format('d M Y') ?? '—' }}</div>
-                    </div>
+            <div class="bg-white shadow-sm sm:rounded-lg p-4 flex flex-wrap items-center gap-4 text-sm">
+                <div>
+                    <span class="text-xs text-gray-400 uppercase block">Stok Saat Ini</span>
+                    <span class="font-semibold text-gray-900">
+                        {{ $product->formatStock((float) $product->stock) }}
+                    </span>
+                </div>
+                <div>
+                    <span class="text-xs text-gray-400 uppercase block">Harga Pokok Rata-Rata</span>
+                    <span class="font-semibold text-gray-900">Rp {{ number_format($product->average_cost, 0, ',', '.') }}</span>
                 </div>
 
-                @if ($po->note)
-                    <div class="text-sm text-gray-500 mb-4">
-                        <span class="text-xs text-gray-400 uppercase block">Catatan</span>
-                        {{ $po->note }}
-                    </div>
-                @endif
-
-                <div class="flex flex-wrap items-center gap-2 pt-4 border-t border-gray-100">
-                    @if ($canEdit)
-                        <button type="button" data-modal-open="edit-po" class="px-3 py-1.5 rounded-md text-xs font-semibold uppercase tracking-wide bg-gray-100 text-gray-700 hover:bg-gray-200">
-                            Edit
-                        </button>
-
-                        <form method="POST" action="{{ route('admin.pembelian.mark-ordered', $po) }}" onsubmit="return confirm('Tandai PO ini sudah dipesan ke supplier? PO akan muncul di daftar konfirmasi penerimaan Gudang.');">
-                            @csrf
-                            @method('PUT')
-                            <button type="submit" class="px-3 py-1.5 rounded-md text-xs font-semibold uppercase tracking-wide bg-blue-600 text-white hover:bg-blue-700">
-                                Tandai Dipesan
-                            </button>
-                        </form>
-
-                        @if ($canDelete)
-                            <button type="button" data-modal-open="delete-po" class="px-3 py-1.5 rounded-md text-xs font-semibold uppercase tracking-wide bg-white text-red-600 border border-red-200 hover:bg-red-50">
-                                Hapus
-                            </button>
-                        @endif
-                    @endif
-
-                    @if ($canCancel)
-                        <form method="POST" action="{{ route('admin.pembelian.cancel', $po) }}" onsubmit="return confirm('Batalkan PO ini?');">
-                            @csrf
-                            @method('PUT')
-                            <button type="submit" class="px-3 py-1.5 rounded-md text-xs font-semibold uppercase tracking-wide bg-white text-red-600 border border-red-200 hover:bg-red-50">
-                                Batalkan PO
-                            </button>
-                        </form>
-                    @endif
-
-                    <div class="ml-auto flex items-center gap-2">
-                        <div class="text-right">
-                            <div class="text-xs text-gray-400 uppercase">Status Bayar</div>
-                            <span class="inline-flex px-2.5 py-0.5 rounded-full text-xs font-medium
-                                {{ $po->payment_status === 'paid' ? 'bg-emerald-100 text-emerald-700' : ($po->payment_status === 'partial' ? 'bg-amber-100 text-amber-700' : 'bg-gray-100 text-gray-600') }}">
-                                {{ $paymentLabel[$po->payment_status] }}
-                            </span>
-                        </div>
-                        @if ($po->payment_status !== 'paid')
-                            <button type="button" data-modal-open="ubah-status-bayar" class="px-3 py-1.5 rounded-md text-xs font-semibold uppercase tracking-wide bg-gray-100 text-gray-700 hover:bg-gray-200">
-                                Ubah
-                            </button>
-                        @endif
-                    </div>
-                </div>
+                <form method="GET" class="ml-auto flex items-center gap-2">
+                    <label class="text-xs text-gray-500">Filter Tipe:</label>
+                    <select name="type" onchange="this.form.submit()" class="rounded-md border-gray-300 text-xs focus:border-indigo-500 focus:ring-indigo-500">
+                        <option value="">Semua</option>
+                        @foreach ($typeLabel as $key => $label)
+                            <option value="{{ $key }}" @selected(request('type') === $key)>{{ $label }}</option>
+                        @endforeach
+                    </select>
+                </form>
             </div>
 
-            @if ($po->payments->isNotEmpty())
-                <!-- Riwayat Bukti Pembayaran -->
-                <div class="bg-white shadow-sm sm:rounded-lg p-6">
-                    <h3 class="text-sm font-semibold text-gray-700 mb-3">Riwayat Bukti Pembayaran</h3>
-                    <ul class="divide-y divide-gray-100 text-sm">
-                        @foreach ($po->payments as $payment)
-                            <li class="py-2.5 flex items-center justify-between gap-3">
-                                <div>
-                                    <span class="font-medium text-gray-800">{{ $paymentLabel[$payment->from_status] }} &rarr; {{ $paymentLabel[$payment->to_status] }}</span>
-                                    <div class="text-xs text-gray-400">
-                                        {{ $payment->uploadedBy->name ?? '—' }} &middot; {{ $payment->created_at->format('d M Y H:i') }}
-                                    </div>
-                                </div>
-                                <a href="{{ Storage::url($payment->proof_path) }}" target="_blank" rel="noopener" class="text-indigo-600 hover:underline text-xs font-medium shrink-0">
-                                    Lihat Bukti
-                                </a>
-                            </li>
-                        @endforeach
-                    </ul>
-                </div>
-            @endif
-
-            @if ($po->receipts->isNotEmpty())
-                <!-- Riwayat Bukti Penerimaan Barang -->
-                <div class="bg-white shadow-sm sm:rounded-lg p-6">
-                    <h3 class="text-sm font-semibold text-gray-700 mb-3">Riwayat Bukti Penerimaan Barang</h3>
-                    <ul class="divide-y divide-gray-100 text-sm">
-                        @foreach ($po->receipts as $receipt)
-                            <li class="py-2.5 flex items-center justify-between gap-3">
-                                <div class="text-xs text-gray-400">
-                                    {{ $receipt->receivedBy->name ?? '—' }} &middot; {{ $receipt->created_at->format('d M Y H:i') }}
-                                </div>
-                                <a href="{{ Storage::url($receipt->proof_path) }}" target="_blank" rel="noopener" class="text-indigo-600 hover:underline text-xs font-medium shrink-0">
-                                    Lihat Bukti
-                                </a>
-                            </li>
-                        @endforeach
-                    </ul>
-                </div>
-            @endif
-
-            <!-- Items -->
-            <!-- Items — desktop/tablet (≥768px), tidak berubah -->
+            <!-- Tabel — desktop/tablet (≥768px), tidak berubah -->
             <div class="hidden md:block bg-white shadow-sm sm:rounded-lg overflow-hidden overflow-x-auto">
                 <table class="min-w-full divide-y divide-gray-200 text-sm">
                     <thead class="bg-gray-50">
                         <tr>
-                            <th class="px-4 py-3 text-left font-medium text-gray-500 uppercase tracking-wider">Produk</th>
-                            <th class="px-4 py-3 text-left font-medium text-gray-500 uppercase tracking-wider">Satuan</th>
-                            <th class="px-4 py-3 text-right font-medium text-gray-500 uppercase tracking-wider">Dipesan</th>
-                            <th class="px-4 py-3 text-right font-medium text-gray-500 uppercase tracking-wider">Diterima</th>
-                            <th class="px-4 py-3 text-right font-medium text-gray-500 uppercase tracking-wider">Harga</th>
-                            <th class="px-4 py-3 text-right font-medium text-gray-500 uppercase tracking-wider">Subtotal</th>
+                            <th class="px-4 py-3 text-left font-medium text-gray-500 uppercase tracking-wider">Tanggal</th>
+                            <th class="px-4 py-3 text-center font-medium text-gray-500 uppercase tracking-wider">Tipe</th>
+                            <th class="px-4 py-3 text-right font-medium text-gray-500 uppercase tracking-wider">Qty</th>
+                            <th class="px-4 py-3 text-right font-medium text-gray-500 uppercase tracking-wider">Sebelum &rarr; Sesudah</th>
+                            <th class="px-4 py-3 text-left font-medium text-gray-500 uppercase tracking-wider">Catatan</th>
+                            <th class="px-4 py-3 text-left font-medium text-gray-500 uppercase tracking-wider">Oleh</th>
                         </tr>
                     </thead>
                     <tbody class="divide-y divide-gray-100">
-                        @foreach ($po->items as $item)
+                        @forelse ($movements as $m)
+                            @php $increased = $m->stock_after > $m->stock_before; @endphp
                             <tr>
-                                <td class="px-4 py-3 font-medium text-gray-900">{{ $item->product->name }}</td>
-                                <td class="px-4 py-3 text-gray-500">{{ $item->productUnit->unit_name }}</td>
-                                <td class="px-4 py-3 text-right text-gray-500">{{ \App\Support\Number::trim((float) $item->quantity_ordered) }}</td>
-                                <td class="px-4 py-3 text-right">
-                                    <span @class([
-                                        'font-medium',
-                                        'text-emerald-600' => $item->isFullyReceived(),
-                                        'text-amber-600' => $item->quantity_received > 0 && ! $item->isFullyReceived(),
-                                        'text-gray-400' => $item->quantity_received == 0,
-                                    ])>
-                                        {{ \App\Support\Number::trim((float) $item->quantity_received) }}
+                                <td class="px-4 py-3 text-gray-500 whitespace-nowrap">{{ $m->created_at->format('d M Y H:i') }}</td>
+                                <td class="px-4 py-3 text-center">
+                                    <span class="inline-flex px-2.5 py-0.5 rounded-full text-xs font-medium {{ $typeColor[$m->type] }}">
+                                        {{ $typeLabel[$m->type] }}
                                     </span>
                                 </td>
-                                <td class="px-4 py-3 text-right text-gray-500">Rp {{ number_format($item->unit_price, 0, ',', '.') }}</td>
-                                <td class="px-4 py-3 text-right text-gray-900">Rp {{ number_format($item->subtotal, 0, ',', '.') }}</td>
+                                <td class="px-4 py-3 text-right font-medium {{ $increased ? 'text-emerald-600' : 'text-red-600' }}">
+                                    {{ $increased ? '+' : '-' }}{{ $product->formatStock((float) $m->quantity) }}
+                                </td>
+                                <td class="px-4 py-3 text-right text-gray-500 whitespace-nowrap">
+                                    {{ $product->formatStock((float) $m->stock_before) }}
+                                    &rarr;
+                                    {{ $product->formatStock((float) $m->stock_after) }}
+                                </td>
+                                <td class="px-4 py-3 text-gray-500 max-w-xs">
+                                    {{ $m->note }}
+                                    @if ($m->reference)
+                                        <div class="text-xs text-gray-400">Ref: {{ $m->reference }}</div>
+                                    @endif
+                                </td>
+                                <td class="px-4 py-3 text-gray-500">{{ $m->user->name ?? '—' }}</td>
                             </tr>
-                        @endforeach
+                        @empty
+                            <tr>
+                                <td colspan="6" class="px-6 py-10 text-center text-gray-400">Belum ada riwayat pergerakan stok untuk produk ini.</td>
+                            </tr>
+                        @endforelse
                     </tbody>
-                    <tfoot>
-                        <tr class="bg-gray-50">
-                            <td colspan="5" class="px-4 py-3 text-right text-xs font-medium text-gray-500 uppercase">Total</td>
-                            <td class="px-4 py-3 text-right font-semibold text-gray-900">Rp {{ number_format($po->total_amount, 0, ',', '.') }}</td>
-                        </tr>
-                    </tfoot>
                 </table>
             </div>
 
-            <!-- Items — mobile (<768px), data sama persis dengan tabel di atas -->
+            <!-- Kartu — mobile (<768px), data sama persis dengan tabel di atas -->
             <div class="md:hidden space-y-2.5">
-                @foreach ($po->items as $item)
+                @forelse ($movements as $m)
+                    @php $increased = $m->stock_after > $m->stock_before; @endphp
                     <div class="bg-white border border-gray-200 rounded-lg p-3">
                         <div class="flex items-center justify-between gap-2">
-                            <div class="font-medium text-gray-900 truncate">{{ $item->product->name }}</div>
-                            <span class="flex-none text-[10.5px] px-2 py-0.5 rounded-full bg-gray-100 text-gray-600 font-medium">{{ $item->productUnit->unit_name }}</span>
+                            <span class="inline-flex px-2.5 py-0.5 rounded-full text-xs font-medium {{ $typeColor[$m->type] }}">
+                                {{ $typeLabel[$m->type] }}
+                            </span>
+                            <span class="text-xs text-gray-400 whitespace-nowrap">{{ $m->created_at->format('d M Y H:i') }}</span>
                         </div>
-                        <div class="mt-2.5 pt-2.5 border-t border-dashed border-gray-200 grid grid-cols-2 gap-y-1.5 gap-x-3 text-xs">
-                            <div class="flex justify-between text-gray-500">
-                                <span>Dipesan</span>
-                                <span class="text-gray-700 font-medium">{{ \App\Support\Number::trim((float) $item->quantity_ordered) }}</span>
-                            </div>
-                            <div class="flex justify-between text-gray-500">
-                                <span>Diterima</span>
-                                <span @class([
-                                    'font-medium',
-                                    'text-emerald-600' => $item->isFullyReceived(),
-                                    'text-amber-600' => $item->quantity_received > 0 && ! $item->isFullyReceived(),
-                                    'text-gray-400' => $item->quantity_received == 0,
-                                ])>{{ \App\Support\Number::trim((float) $item->quantity_received) }}</span>
-                            </div>
-                            <div class="flex justify-between text-gray-500">
-                                <span>Harga</span>
-                                <span class="text-gray-700 font-medium">Rp {{ number_format($item->unit_price, 0, ',', '.') }}</span>
-                            </div>
-                            <div class="flex justify-between text-gray-500">
-                                <span>Subtotal</span>
-                                <span class="text-gray-900 font-semibold">Rp {{ number_format($item->subtotal, 0, ',', '.') }}</span>
-                            </div>
-                        </div>
-                    </div>
-                @endforeach
 
-                <div class="bg-gray-50 border border-gray-200 rounded-lg p-3 flex items-center justify-between">
-                    <span class="text-xs font-medium text-gray-500 uppercase">Total</span>
-                    <span class="font-semibold text-gray-900">Rp {{ number_format($po->total_amount, 0, ',', '.') }}</span>
-                </div>
+                        <div class="mt-2 flex items-end justify-between gap-2">
+                            <div class="text-xs text-gray-500">
+                                {{ $product->formatStock((float) $m->stock_before) }}
+                                &rarr;
+                                {{ $product->formatStock((float) $m->stock_after) }}
+                            </div>
+                            <div class="font-semibold {{ $increased ? 'text-emerald-600' : 'text-red-600' }}">
+                                {{ $increased ? '+' : '-' }}{{ $product->formatStock((float) $m->quantity) }}
+                            </div>
+                        </div>
+
+                        @if ($m->note || $m->reference)
+                            <div class="mt-2 pt-2 border-t border-dashed border-gray-200 text-xs text-gray-500">
+                                {{ $m->note }}
+                                @if ($m->reference)
+                                    <div class="text-gray-400">Ref: {{ $m->reference }}</div>
+                                @endif
+                            </div>
+                        @endif
+
+                        <div class="mt-1.5 text-[11px] text-gray-400">Oleh {{ $m->user->name ?? '—' }}</div>
+                    </div>
+                @empty
+                    <div class="bg-white border border-gray-200 rounded-lg p-6 text-center text-gray-400 text-sm">
+                        Belum ada riwayat pergerakan stok untuk produk ini.
+                    </div>
+                @endforelse
             </div>
 
-            @include('gudang.partials.retur-supplier-card', ['po' => $po, 'canReturn' => $canReturn, 'showValues' => true])
+            <div>{{ $movements->links() }}</div>
         </div>
     </div>
-
-    @include('kasir.partials.retur-modal')
-
-    @if ($canEdit)
-        <!-- Modal Edit -->
-        <x-modal.modal name="edit-po" maxWidth="2xl">
-            <form method="POST" action="{{ route('admin.pembelian.update', $po) }}" class="p-6">
-                @csrf
-                @method('PUT')
-                <h3 class="text-lg font-medium text-gray-900 mb-4">Edit PO {{ $po->po_number }}</h3>
-
-                @include('admin.pembelian._form', ['po' => $po, 'formId' => 'edit-po', 'suppliers' => $suppliers, 'products' => $products])
-
-                <div class="flex justify-end gap-2 mt-6">
-                    <x-secondary-button type="button" data-modal-close>Batal</x-secondary-button>
-                    <x-primary-button>Simpan Perubahan</x-primary-button>
-                </div>
-            </form>
-        </x-modal.modal>
-
-        @if ($canDelete)
-            <!-- Modal Delete -->
-            <x-modal.modal name="delete-po">
-                <form method="POST" action="{{ route('admin.pembelian.destroy', $po) }}" class="p-6">
-                    @csrf
-                    @method('DELETE')
-                    <h3 class="text-lg font-medium text-gray-900 mb-2">Hapus PO?</h3>
-                    <p class="text-sm text-gray-500 mb-4">
-                        PO "<strong>{{ $po->po_number }}</strong>" beserta semua itemnya akan dihapus permanen.
-                    </p>
-                    <div class="flex justify-end gap-2">
-                        <x-secondary-button type="button" data-modal-close>Batal</x-secondary-button>
-                        <x-danger-button>Ya, Hapus</x-danger-button>
-                    </div>
-                </form>
-            </x-modal.modal>
-        @endif
-    @endif
-
-    @if ($po->payment_status !== 'paid')
-        <!-- Modal Ubah Status Bayar -->
-        <x-modal.modal name="ubah-status-bayar">
-            <form method="POST" action="{{ route('admin.pembelian.payment-status', $po) }}" enctype="multipart/form-data" class="p-6">
-                @csrf
-                @method('PUT')
-                <h3 class="text-lg font-medium text-gray-900 mb-1">Ubah Status Pembayaran</h3>
-                <p class="text-sm text-gray-500 mb-4">
-                    Status saat ini: <strong>{{ $paymentLabel[$po->payment_status] }}</strong>.
-                    Status pembayaran tidak bisa dikembalikan mundur setelah disimpan.
-                </p>
-
-                <input type="hidden" name="form_id" value="ubah-status-bayar">
-
-                <div class="mb-4">
-                    <label class="block text-sm font-medium text-gray-700 mb-1">Status Baru</label>
-                    <select name="payment_status" required class="w-full rounded-md border-gray-300 shadow-sm text-sm focus:border-indigo-500 focus:ring-indigo-500">
-                        <option value="" disabled selected>Pilih status baru...</option>
-                        @foreach ($paymentLabel as $key => $label)
-                            @continue(\App\Models\PurchaseOrder::PAYMENT_STATUS_RANK[$key] <= \App\Models\PurchaseOrder::PAYMENT_STATUS_RANK[$po->payment_status])
-                            <option value="{{ $key }}" @selected(old('payment_status') === $key)>{{ $label }}</option>
-                        @endforeach
-                    </select>
-                    @error('payment_status')
-                        <p class="text-xs text-red-600 mt-1">{{ $message }}</p>
-                    @enderror
-                </div>
-
-                <div class="mb-2">
-                    <label class="block text-sm font-medium text-gray-700 mb-1">Bukti Pembayaran</label>
-                    <input type="file" name="proof" required accept="image/jpeg,image/png,image/webp"
-                           class="w-full text-sm text-gray-600 file:mr-3 file:py-1.5 file:px-3 file:rounded-md file:border-0 file:text-xs file:font-semibold file:bg-indigo-50 file:text-indigo-700 hover:file:bg-indigo-100">
-                    <p class="text-xs text-gray-400 mt-1">Format JPG/PNG/WEBP, maksimal 2MB. Wajib diisi.</p>
-                    @error('proof')
-                        <p class="text-xs text-red-600 mt-1">{{ $message }}</p>
-                    @enderror
-                </div>
-
-                <div class="flex justify-end gap-2 mt-6">
-                    <x-secondary-button type="button" data-modal-close>Batal</x-secondary-button>
-                    <x-primary-button>Simpan</x-primary-button>
-                </div>
-            </form>
-        </x-modal.modal>
-    @endif
-
-    @if ($errors->any() && old('form_id'))
-        <script>
-            document.addEventListener('DOMContentLoaded', function () {
-                var trigger = document.querySelector('[data-modal-open="{{ old('form_id') }}"]');
-                if (trigger) trigger.click();
-            });
-        </script>
-    @endif
 </x-app-layout>

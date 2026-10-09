@@ -104,21 +104,42 @@
                 </form>
             </div>
 
-            <!-- Ringkasan -->
-            <div class="grid grid-cols-1 sm:grid-cols-3 gap-4 mb-4">
+            <!-- Ringkasan: omzet BERSIH = penjualan kotor - retur pelanggan -->
+            <div class="grid grid-cols-1 sm:grid-cols-3 lg:grid-cols-5 gap-4 mb-2">
                 <div class="bg-white p-4 rounded-lg shadow-sm">
-                    <div class="text-xs text-gray-400 uppercase tracking-wider">Total Omzet</div>
-                    <div class="text-2xl font-semibold text-gray-900 mt-1">Rp {{ number_format($total_omzet, 0, ',', '.') }}</div>
+                    <div class="text-xs text-gray-400 uppercase tracking-wider">Penjualan Kotor</div>
+                    <div class="text-xl font-semibold text-gray-900 mt-1">Rp {{ number_format($penjualan_kotor, 0, ',', '.') }}</div>
+                </div>
+                <div class="bg-white p-4 rounded-lg shadow-sm">
+                    <div class="text-xs text-gray-400 uppercase tracking-wider">Retur Pelanggan</div>
+                    <div @class(['text-xl font-semibold mt-1', 'text-red-600' => $total_retur > 0, 'text-gray-900' => $total_retur === 0])>
+                        {{ $total_retur > 0 ? '− ' : '' }}Rp {{ number_format($total_retur, 0, ',', '.') }}
+                    </div>
+                    <div class="text-xs text-gray-400 mt-0.5">
+                        {{ number_format($jumlah_retur, 0, ',', '.') }} retur
+                        @if ($jumlah_retur > 0)
+                            &middot; <a href="{{ route('admin.retur-penjualan.index') }}" class="text-indigo-600 hover:underline">lihat</a>
+                        @endif
+                    </div>
+                </div>
+                <div class="bg-white p-4 rounded-lg shadow-sm ring-1 ring-indigo-100">
+                    <div class="text-xs text-gray-400 uppercase tracking-wider">Total Omzet (Bersih)</div>
+                    <div class="text-xl font-semibold text-gray-900 mt-1">Rp {{ number_format($total_omzet, 0, ',', '.') }}</div>
                 </div>
                 <div class="bg-white p-4 rounded-lg shadow-sm">
                     <div class="text-xs text-gray-400 uppercase tracking-wider">Jumlah Transaksi</div>
-                    <div class="text-2xl font-semibold text-gray-900 mt-1">{{ number_format($jumlah_transaksi, 0, ',', '.') }}</div>
+                    <div class="text-xl font-semibold text-gray-900 mt-1">{{ number_format($jumlah_transaksi, 0, ',', '.') }}</div>
                 </div>
                 <div class="bg-white p-4 rounded-lg shadow-sm">
                     <div class="text-xs text-gray-400 uppercase tracking-wider">Rata-rata / Transaksi</div>
-                    <div class="text-2xl font-semibold text-gray-900 mt-1">Rp {{ number_format($rata_rata, 0, ',', '.') }}</div>
+                    <div class="text-xl font-semibold text-gray-900 mt-1">Rp {{ number_format($rata_rata, 0, ',', '.') }}</div>
                 </div>
             </div>
+            <p class="text-xs text-gray-400 mb-4">
+                Omzet bersih = penjualan kotor &minus; retur. Retur dihitung menurut <strong>tanggal retur</strong>
+                (bisa atas penjualan periode lain); filter kasir &amp; metode bayar mengikuti transaksi asal.
+                Rata-rata dihitung dari penjualan kotor.
+            </p>
 
             <!-- Tabel — desktop/tablet (≥768px) -->
             <div class="hidden md:block bg-white shadow-sm sm:rounded-lg overflow-hidden overflow-x-auto">

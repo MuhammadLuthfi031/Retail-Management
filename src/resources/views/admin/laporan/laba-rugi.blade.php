@@ -72,10 +72,21 @@
                 </form>
             </div>
 
-            <!-- Ringkasan -->
-            <div class="grid grid-cols-1 sm:grid-cols-4 gap-4 mb-4">
+            <!-- Ringkasan: semua angka BERSIH dari retur pelanggan -->
+            <div class="grid grid-cols-1 sm:grid-cols-3 lg:grid-cols-6 gap-4 mb-2">
                 <div class="bg-white p-4 rounded-lg shadow-sm">
-                    <div class="text-xs text-gray-400 uppercase tracking-wider">Total Penjualan</div>
+                    <div class="text-xs text-gray-400 uppercase tracking-wider">Penjualan Kotor</div>
+                    <div class="text-xl font-semibold text-gray-900 mt-1">Rp {{ number_format($penjualanKotor, 0, ',', '.') }}</div>
+                </div>
+                <div class="bg-white p-4 rounded-lg shadow-sm">
+                    <div class="text-xs text-gray-400 uppercase tracking-wider">Retur Pelanggan</div>
+                    <div @class(['text-xl font-semibold mt-1', 'text-red-600' => $totalRetur > 0, 'text-gray-900' => $totalRetur === 0])>
+                        {{ $totalRetur > 0 ? '− ' : '' }}Rp {{ number_format($totalRetur, 0, ',', '.') }}
+                    </div>
+                    <div class="text-xs text-gray-400 mt-0.5">{{ number_format($jumlahRetur, 0, ',', '.') }} retur</div>
+                </div>
+                <div class="bg-white p-4 rounded-lg shadow-sm">
+                    <div class="text-xs text-gray-400 uppercase tracking-wider">Penjualan Bersih</div>
                     <div class="text-xl font-semibold text-gray-900 mt-1">Rp {{ number_format($totalOmzet, 0, ',', '.') }}</div>
                 </div>
                 <div class="bg-white p-4 rounded-lg shadow-sm">
@@ -95,6 +106,15 @@
                     <div class="text-xl font-semibold text-gray-900 mt-1">{{ $margin }}%</div>
                 </div>
             </div>
+            @if ($jumlahRetur > 0)
+                <p class="text-xs text-gray-400 mb-4">
+                    Retur dihitung menurut <strong>tanggal retur</strong>. HPP sudah dikurangi biaya barang retur yang
+                    <strong>layak jual</strong> dan kembali ke stok (Rp {{ number_format($hppRetur, 0, ',', '.') }});
+                    barang retur yang <strong>rusak</strong> tidak mengurangi HPP, sehingga menjadi kerugian di laba.
+                </p>
+            @else
+                <div class="mb-4"></div>
+            @endif
 
             <!-- Tabel — desktop/tablet (≥768px), tidak berubah -->
             <div class="hidden md:block bg-white shadow-sm sm:rounded-lg overflow-hidden overflow-x-auto">

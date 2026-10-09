@@ -31,7 +31,7 @@
                 <!-- Produk Terlaris -->
                 <div class="bg-white shadow-sm sm:rounded-lg p-4">
                     <div class="flex items-center justify-between mb-3">
-                        <h3 class="font-medium text-gray-800">Produk Terlaris</h3>
+                        <h3 class="font-medium text-gray-800">Produk Terlaris <span class="text-xs font-normal text-gray-400">(bersih, setelah retur)</span></h3>
                         <form method="GET" class="flex gap-2 items-center text-xs">
                             <input type="date" name="from" value="{{ request('from', $from->toDateString()) }}" class="rounded-md border-gray-300 text-xs">
                             <span class="text-gray-400">—</span>

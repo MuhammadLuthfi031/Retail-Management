@@ -21,21 +21,33 @@
         </div>
     @endif
 
+    {{-- Dua baris x tiga kartu (bukan satu baris x enam): angka ratusan juta/miliar tidak muat di kolom ~16%
+         dan membungkus ("Rp" terpisah dari angkanya). --}}
     <table class="summary">
         <tr>
-            <td style="width: 25%;">
-                <span class="label">Total Penjualan</span>
+            <td style="width: 33%;">
+                <span class="label">Penjualan Kotor</span>
+                <span class="value">Rp {{ number_format($penjualanKotor, 0, ',', '.') }}</span>
+            </td>
+            <td style="width: 33%;">
+                <span class="label">Retur ({{ number_format($jumlahRetur, 0, ',', '.') }})</span>
+                <span class="value">{{ $totalRetur > 0 ? '- ' : '' }}Rp {{ number_format($totalRetur, 0, ',', '.') }}</span>
+            </td>
+            <td style="width: 34%;">
+                <span class="label">Penjualan Bersih</span>
                 <span class="value">Rp {{ number_format($totalOmzet, 0, ',', '.') }}</span>
             </td>
-            <td style="width: 25%;">
+        </tr>
+        <tr>
+            <td style="width: 33%;">
                 <span class="label">Total HPP</span>
                 <span class="value">Rp {{ number_format($totalHpp, 0, ',', '.') }}</span>
             </td>
-            <td style="width: 25%;">
+            <td style="width: 33%;">
                 <span class="label">Laba Kotor</span>
                 <span class="value {{ $totalLaba >= 0 ? 'positive' : 'negative' }}">Rp {{ number_format($totalLaba, 0, ',', '.') }}</span>
             </td>
-            <td style="width: 25%;">
+            <td style="width: 34%;">
                 <span class="label">Margin</span>
                 <span class="value">{{ $margin }}%</span>
             </td>

@@ -8,6 +8,7 @@ use App\Models\Product;
 use App\Models\Transaction;
 use App\Models\TransactionDetail;
 use App\Models\User;
+use App\Services\SalesReturnReport;
 use Barryvdh\DomPDF\Facade\Pdf;
 use Illuminate\Http\Request;
 use Illuminate\Support\Carbon;
@@ -19,6 +20,10 @@ use Symfony\Component\HttpFoundation\Response;
  * bisa diekspor ke PDF. Setiap laporan punya method "*Data()" privat yang jadi
  * SATU-SATUNYA sumber query — dipakai bareng oleh method tampilan HTML & PDF
  * supaya angka yang ditampilkan di layar dan di file PDF dijamin selalu sama.
+ *
+ * RETUR PELANGGAN: semua angka penjualan di sini adalah angka BERSIH — penjualan (menurut
+ * tanggal jual) dikurangi retur (menurut tanggal retur). Sumber angka retur hanya satu:
+ * SalesReturnReport (aturan lengkapnya ada di docblock kelas itu).
  */
 class LaporanController extends Controller
 {
@@ -48,7 +53,7 @@ class LaporanController extends Controller
         return $pdf->download('laporan-penjualan-' . $data['from']->format('Ymd') . '-' . $data['to']->format('Ymd') . '.pdf');
     }
 
-    /** @return array{from: Carbon, to: Carbon, query: \Illuminate\Database\Eloquent\Builder, total_omzet: int, jumlah_transaksi: int, rata_rata: int, filters: array} */
+    /** @return array{from: Carbon, to: Carbon, query: \Illuminate\Database\Eloquent\Builder, penjualan_kotor: int, total_retur: int, jumlah_retur: int, total_omzet: int, jumlah_transaksi: int, rata_rata: int, filters: array} */
     private function penjualanData(Request $request): array
     {
         [$from, $to] = $this->resolveDateRange($request, now()->startOfMonth(), now()->endOfDay());
@@ -68,8 +73,19 @@ class LaporanController extends Controller
         // baris transaksi & relasinya.
         $summary = $base()->toBase()->selectRaw('COUNT(*) as jumlah, COALESCE(SUM(grand_total), 0) as total')->first();
         $jumlahTransaksi = (int) $summary->jumlah;
-        $totalOmzet = (int) $summary->total;
-        $rataRata = $jumlahTransaksi > 0 ? (int) round($totalOmzet / $jumlahTransaksi) : 0;
+        $penjualanKotor = (int) $summary->total;
+
+        // Retur dalam rentang yang sama (menurut tanggal retur); kasir & metode bayar mengikuti transaksi asal.
+        $retur = SalesReturnReport::summary(
+            $from,
+            $to,
+            $request->filled('user_id') ? $request->user_id : null,
+            $request->filled('payment_method') ? $request->payment_method : null,
+        );
+        $totalOmzet = $penjualanKotor - $retur['total'];
+        // Rata-rata = nilai keranjang saat penjualan (kotor), bukan omzet bersih: retur atas penjualan
+        // periode lain tidak boleh menyeret rata-rata (bahkan bisa membuatnya negatif).
+        $rataRata = $jumlahTransaksi > 0 ? (int) round($penjualanKotor / $jumlahTransaksi) : 0;
 
         $paymentLabels = ['cash' => 'Cash', 'debit' => 'Debit', 'qris' => 'QRIS', 'transfer' => 'Transfer'];
 
@@ -77,7 +93,10 @@ class LaporanController extends Controller
             'from' => $from,
             'to' => $to,
             'query' => $base(),
-            'total_omzet' => $totalOmzet,
+            'penjualan_kotor' => $penjualanKotor,
+            'total_retur' => $retur['total'],
+            'jumlah_retur' => $retur['count'],
+            'total_omzet' => $totalOmzet, // BERSIH = kotor - retur
             'jumlah_transaksi' => $jumlahTransaksi,
             'rata_rata' => $rataRata,
             'filters' => $request->only('user_id', 'payment_method'),
@@ -116,10 +135,19 @@ class LaporanController extends Controller
              COALESCE(SUM(COALESCE(transaction_details.unit_cost, products.average_cost) * transaction_details.quantity * transaction_details.unit_conversion), 0) as total_hpp'
         )->first();
 
-        $totalOmzet = (int) $summary->total_omzet;
-        $totalHpp = (int) round($summary->total_hpp);
+        $retur = SalesReturnReport::summary($from, $to);
+
+        $penjualanKotor = (int) $summary->total_omzet;
+        $totalRetur = $retur['total'];
+        // HPP bersih: HPP penjualan dikurangi biaya barang retur yang LAYAK JUAL (kembali ke stok).
+        // Barang retur rusak tidak mengurangi HPP -> kerugiannya tampil di laba.
+        $totalOmzet = $penjualanKotor - $totalRetur;
+        $totalHpp = (int) round($summary->total_hpp - $retur['hpp']);
+        $hppRetur = (int) round($retur['hpp']);
         $totalLaba = $totalOmzet - $totalHpp;
         $margin = $totalOmzet > 0 ? round($totalLaba / $totalOmzet * 100, 1) : 0.0;
+
+        $returPerProduk = SalesReturnReport::perProduct($from, $to);
 
         $perProduk = $baseJoin()
             ->selectRaw(
@@ -130,24 +158,54 @@ class LaporanController extends Controller
                  SUM(COALESCE(transaction_details.unit_cost, products.average_cost) * transaction_details.quantity * transaction_details.unit_conversion) as hpp'
             )
             ->groupBy('transaction_details.product_id', 'transaction_details.product_name')
-            ->orderByDesc('omzet')
-            ->limit(self::MAX_PDF_ROWS)
             ->get()
-            ->map(function ($row) {
-                $row->hpp = (int) round($row->hpp);
-                $row->laba = (int) $row->omzet - $row->hpp;
-                $row->margin = $row->omzet > 0 ? round($row->laba / $row->omzet * 100, 1) : 0.0;
+            ->map(function ($row) use ($returPerProduk) {
+                // pull(): baris retur yang cocok diambil (dan dikeluarkan) dari daftar retur;
+                // sisanya (produk yang HANYA diretur di periode ini) ditambahkan di bawah.
+                $ret = $returPerProduk->pull(SalesReturnReport::key($row));
 
-                return $row;
-            });
+                return $this->netProductRow(
+                    $row->product_id, $row->product_name,
+                    (float) $row->qty_terjual - ($ret->qty ?? 0),
+                    (int) $row->omzet - ($ret->omzet ?? 0),
+                    (float) $row->hpp - ($ret->hpp ?? 0),
+                );
+            })
+            ->concat($returPerProduk->map(fn ($ret) => $this->netProductRow(
+                // Produk dijual di periode lain, diretur di periode ini: tampil NEGATIF (memang mengurangi).
+                $ret->product_id, $ret->product_name, -$ret->qty, -$ret->omzet, -$ret->hpp,
+            ))->values())
+            ->sortByDesc('omzet')
+            ->take(self::MAX_PDF_ROWS)
+            ->values();
 
         // Ada baris transaksi lama (sebelum kolom unit_cost ada) yang cost
         // basis-nya dipakaikan average_cost SAAT INI sebagai perkiraan —
         // tampilkan catatan ini di UI supaya tidak disalahartikan sbg data
         // pasti akurat 100%.
-        $adaDataLegacy = $baseJoin()->whereNull('transaction_details.unit_cost')->exists();
+        $adaDataLegacy = $baseJoin()->whereNull('transaction_details.unit_cost')->exists() || $retur['legacy'];
 
-        return compact('from', 'to', 'totalOmzet', 'totalHpp', 'totalLaba', 'margin', 'perProduk', 'adaDataLegacy');
+        return compact(
+            'from', 'to', 'penjualanKotor', 'totalRetur', 'hppRetur', 'totalOmzet', 'totalHpp', 'totalLaba',
+            'margin', 'perProduk', 'adaDataLegacy'
+        ) + ['jumlahRetur' => $retur['count']];
+    }
+
+    /** Satu baris laporan per-produk dalam angka BERSIH (penjualan dikurangi retur). */
+    private function netProductRow(int $productId, string $name, float $qty, int $omzet, float $hpp): object
+    {
+        $hppInt = (int) round($hpp);
+        $laba = $omzet - $hppInt;
+
+        return (object) [
+            'product_id' => $productId,
+            'product_name' => $name,
+            'qty_terjual' => $qty,
+            'omzet' => $omzet,
+            'hpp' => $hppInt,
+            'laba' => $laba,
+            'margin' => $omzet > 0 ? round($laba / $omzet * 100, 1) : 0.0,
+        ];
     }
 
     // === STOK ===
@@ -197,6 +255,10 @@ class LaporanController extends Controller
 
         [$from, $to] = $this->resolveDateRange($request, now()->subDays(30)->startOfDay(), now()->endOfDay());
 
+        // Qty & omzet BERSIH: dikurangi retur pelanggan (apa pun kondisinya, barang itu tidak jadi terjual).
+        // Dikelompokkan sebelum dipotong 10 teratas, karena retur bisa mengubah peringkat.
+        $returPerProduk = SalesReturnReport::perProduct($from, $to);
+
         $terlaris = TransactionDetail::query()
             ->join('transactions', 'transactions.id', '=', 'transaction_details.transaction_id')
             ->where('transactions.status', 'completed')
@@ -208,9 +270,21 @@ class LaporanController extends Controller
                  SUM(transaction_details.subtotal) as omzet'
             )
             ->groupBy('transaction_details.product_id', 'transaction_details.product_name')
-            ->orderByDesc('qty_terjual')
-            ->limit(10)
-            ->get();
+            ->get()
+            ->map(function ($row) use ($returPerProduk) {
+                $ret = $returPerProduk->get(SalesReturnReport::key($row));
+
+                return (object) [
+                    'product_id' => (int) $row->product_id,
+                    'product_name' => $row->product_name,
+                    'qty_terjual' => (float) $row->qty_terjual - ($ret->qty ?? 0),
+                    'omzet' => (int) $row->omzet - ($ret->omzet ?? 0),
+                ];
+            })
+            ->filter(fn ($row) => $row->qty_terjual > 0) // terjual bersih nol/negatif bukan "terlaris"
+            ->sortByDesc('qty_terjual')
+            ->take(10)
+            ->values();
 
         return [
             'produkQuery' => $filtered,
