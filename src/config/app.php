@@ -60,12 +60,18 @@ return [
     |--------------------------------------------------------------------------
     |
     | Here you may specify the default timezone for your application, which
-    | will be used by the PHP date and date-time functions. The timezone
-    | is set to "UTC" by default as it is suitable for most use cases.
+    | will be used by the PHP date and date-time functions.
+    |
+    | Toko beroperasi di WIB (QA-008). Zona waktu bisnis ini menentukan batas "hari
+    | ini"/bulan pada dashboard & laporan, jam di struk, dan tanggal pada nomor
+    | dokumen (INV-/PO-/RTN-/RTP-YYYYMMDD). Waktu disimpan sebagai jam dinding WIB.
+    |
+    | WAJIB sama dengan zona waktu sesi MySQL (DB_TIMEZONE di config/database.php,
+    | +07:00 untuk WIB). Menggantinya berarti menggeser seluruh data lama.
     |
     */
 
-    'timezone' => 'UTC',
+    'timezone' => env('APP_TIMEZONE', 'Asia/Jakarta'),
 
     /*
     |--------------------------------------------------------------------------

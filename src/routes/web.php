@@ -1,5 +1,6 @@
 <?php
 
+use App\Http\Controllers\Admin\BackupController;
 use App\Http\Controllers\Admin\LaporanController;
 use App\Http\Controllers\Admin\DashboardController;
 use App\Http\Controllers\Admin\PurchaseOrderController;
@@ -112,6 +113,16 @@ Route::middleware(['auth', 'no-cache'])->group(function () {
         Route::prefix('retur-penjualan')->name('retur-penjualan.')->group(function () {
             Route::get('/', [SalesReturnController::class, 'index'])->name('index');
             Route::get('/{salesReturn}', [SalesReturnController::class, 'show'])->name('show');
+        });
+
+        // Backup data (QA-012). Tidak ada route restore/hapus — sengaja, lihat BackupController.
+        // Nama file di route dikunci ke pola backup agar tidak bisa dipakai membaca file lain.
+        Route::prefix('backup')->name('backup.')->group(function () {
+            Route::get('/', [BackupController::class, 'index'])->name('index');
+            Route::post('/', [BackupController::class, 'store'])->middleware('throttle:6,1')->name('store');
+            Route::get('/{name}/unduh', [BackupController::class, 'download'])
+                ->where('name', 'backup-\d{8}-\d{6}-(auto|manual|pra-restore)\.zip')
+                ->name('download');
         });
 
         // Manajemen User/Karyawan (§7.2 spesifikasi) — lihat UserController

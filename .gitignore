@@ -19,3 +19,6 @@ Thumbs.db
 
 # Node (kalau ada tooling di root, bukan di src/)
 node_modules/
+
+# Hasil backup (berisi SELURUH data toko termasuk hash password) — JANGAN pernah di-commit.
+/backups/

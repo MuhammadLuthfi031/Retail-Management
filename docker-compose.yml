@@ -1,28 +1,50 @@
+# Dasar bersama untuk container Laravel (web `app` dan penjadwal `scheduler`):
+# image, volume, dan environment HARUS sama persis supaya penjadwal melihat database
+# dan folder backup yang sama dengan aplikasi.
+x-laravel: &laravel
+  build:
+    context: .
+    dockerfile: docker/php/Dockerfile
+    args:
+      UID: ${UID:-1000}
+      GID: ${GID:-1000}
+  image: toko-app-php
+  restart: unless-stopped
+  working_dir: /var/www
+  volumes:
+    - ./src:/var/www
+    # Folder backup DI LUAR volume database (toko-db-data): `docker compose down -v`
+    # tidak ikut menghapus backup. Arahkan BACKUP_HOST_PATH ke disk eksternal / folder
+    # jaringan untuk salinan di luar komputer toko (lihat .env.docker.example).
+    - ${BACKUP_HOST_PATH:-./backups}:/backups
+  environment:
+    DB_CONNECTION: mysql
+    DB_HOST: db
+    DB_PORT: 3306
+    DB_DATABASE: ${DB_DATABASE:-toko_db}
+    DB_USERNAME: ${DB_USERNAME:-toko_user}
+    # TANPA nilai bawaan (QA-010): password wajib diisi sendiri di file .env.
+    DB_PASSWORD: ${DB_PASSWORD:?DB_PASSWORD belum diisi di file .env - lihat .env.docker.example}
+    BACKUP_PATH: /backups
+  depends_on:
+    db:
+      condition: service_healthy
+  networks:
+    - toko-network
+
 services:
   # === Aplikasi Laravel (PHP-FPM) ===
   app:
-    build:
-      context: .
-      dockerfile: docker/php/Dockerfile
-      args:
-        UID: ${UID:-1000}
-        GID: ${GID:-1000}
+    <<: *laravel
     container_name: toko_app
-    restart: unless-stopped
-    working_dir: /var/www
-    volumes:
-      - ./src:/var/www
-    environment:
-      - DB_HOST=db
-      - DB_PORT=3306
-      - DB_DATABASE=${DB_DATABASE:-toko_db}
-      - DB_USERNAME=${DB_USERNAME:-toko_user}
-      - DB_PASSWORD=${DB_PASSWORD:-secret}
-    depends_on:
-      db:
-        condition: service_healthy
-    networks:
-      - toko-network
+
+  # === Penjadwal (backup otomatis harian + tombol "Backup Sekarang") ===
+  # Tanpa container ini TIDAK ADA backup otomatis. Admin diperingatkan di dashboard
+  # bila penjadwal berhenti.
+  scheduler:
+    <<: *laravel
+    container_name: toko_scheduler
+    command: php artisan schedule:work
 
   # === Web server ===
   webserver:
@@ -52,17 +74,22 @@ services:
     container_name: toko_db
     restart: unless-stopped
     environment:
-      - MYSQL_ROOT_PASSWORD=${DB_ROOT_PASSWORD:-rootsecret}
+      # TANPA nilai bawaan (QA-010): kedua password wajib diisi di file .env.
+      - MYSQL_ROOT_PASSWORD=${DB_ROOT_PASSWORD:?DB_ROOT_PASSWORD belum diisi di file .env - lihat .env.docker.example}
       - MYSQL_DATABASE=${DB_DATABASE:-toko_db}
       - MYSQL_USER=${DB_USERNAME:-toko_user}
-      - MYSQL_PASSWORD=${DB_PASSWORD:-secret}
+      - MYSQL_PASSWORD=${DB_PASSWORD:?DB_PASSWORD belum diisi di file .env - lihat .env.docker.example}
     ports:
-      - "${DB_PORT_HOST:-3306}:3306"
+      # Hanya bisa diakses dari komputer server itu sendiri (127.0.0.1), TIDAK dari
+      # perangkat lain di jaringan toko (QA-010). Aplikasi tetap terhubung lewat
+      # jaringan Docker internal (host "db"), tidak lewat port ini.
+      - "127.0.0.1:${DB_PORT_HOST:-3306}:3306"
     volumes:
       - toko-db-data:/var/lib/mysql
       - ./docker/mysql/my.cnf:/etc/mysql/conf.d/my.cnf
     healthcheck:
-      test: ["CMD", "mysqladmin", "ping", "-h", "localhost", "-u", "root", "-p${DB_ROOT_PASSWORD:-rootsecret}"]
+      # Password dibaca dari environment container (bukan disisipkan ke perintah).
+      test: ["CMD-SHELL", "mysqladmin ping -h localhost -u root -p\"$$MYSQL_ROOT_PASSWORD\" --silent"]
       interval: 5s
       timeout: 5s
       retries: 10
@@ -84,7 +111,9 @@ services:
     profiles:
       - dev
 
-  # === phpMyAdmin (opsional, memudahkan lihat data selama development) ===
+  # === phpMyAdmin — HANYA UNTUK DEVELOPMENT ===
+  # Tidak menyala kecuali `docker compose --profile dev up`. Login otomatis sebagai root,
+  # jadi JANGAN pernah diaktifkan di server toko. Port terikat ke 127.0.0.1.
   phpmyadmin:
     image: phpmyadmin:5
     container_name: toko_phpmyadmin
@@ -92,9 +121,9 @@ services:
     environment:
       - PMA_HOST=db
       - PMA_USER=root
-      - PMA_PASSWORD=${DB_ROOT_PASSWORD:-rootsecret}
+      - PMA_PASSWORD=${DB_ROOT_PASSWORD:?DB_ROOT_PASSWORD belum diisi di file .env - lihat .env.docker.example}
     ports:
-      - "${PMA_PORT:-8081}:80"
+      - "127.0.0.1:${PMA_PORT:-8081}:80"
     depends_on:
       - db
     networks:
