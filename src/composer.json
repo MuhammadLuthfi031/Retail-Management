@@ -49,7 +49,9 @@
             "@php artisan dev"
         ],
         "test": [
-            "@php artisan config:clear --ansi @no_additional_args",
+            "@php -r \"@unlink('bootstrap/cache/config.php');\"",
+            "@putenv DB_CONNECTION=sqlite",
+            "@putenv DB_DATABASE=:memory:",
             "@php artisan test"
         ],
         "post-autoload-dump": [

@@ -155,7 +155,9 @@ class PurchaseReturnTest extends TestCase
         $this->assertEquals(432, $movement->stock_after);
         $this->assertSame('RTP-20261014-0001', $movement->reference);
 
-        // Invarian: average_cost, PO, dan qty diterima TIDAK berubah.
+        // average_cost tetap 1.000 di fixture ini HANYA karena harga PO (144.000/dus = 1.000/sachet)
+        // sama dengan rata-ratanya; koreksi QA-025 diuji di PurchaseReturnAverageCostTest.
+        // Invarian: PO dan qty diterima TIDAK berubah.
         $this->assertSame(1000, (int) Product::find($product->id)->average_cost);
         $freshPo = PurchaseOrder::find($po->id);
         $this->assertSame('received', $freshPo->status);

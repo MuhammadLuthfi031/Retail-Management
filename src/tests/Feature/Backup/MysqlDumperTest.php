@@ -49,7 +49,9 @@ class MysqlDumperTest extends TestCase
     private function fakeBinary(string $body): void
     {
         $path = $this->dir.'/fake-dump';
-        file_put_contents($path, "#!/bin/sh\n".$body);
+        // Normalisasi CRLF -> LF: bila file test ini tersimpan dengan line ending Windows, isi
+        // heredoc ikut ber-CRLF dan /bin/sh gagal ("Syntax error: word unexpected (expecting do)").
+        file_put_contents($path, "#!/bin/sh\n".str_replace("\r\n", "\n", $body));
         chmod($path, 0755);
         config(['backup.dump_binary' => $path, 'backup.timeout' => 20]);
     }

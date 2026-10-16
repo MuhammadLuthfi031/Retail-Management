@@ -79,6 +79,9 @@ class StockMovement extends Model
      *                              Kalau tidak diisi, fallback ke unitCost x quantity (aman dipakai
      *                              caller yang memang cuma punya angka per-satuan-dasar yang sudah
      *                              exact dari awal, mis. ProductController::store() utk stok awal).
+     *                              Untuk type 'return_out' (retur ke supplier): NILAI exact yang
+     *                              dikeluarkan dari persediaan (harga PO x qty retur); bila diisi,
+     *                              average_cost dikoreksi (QA-025). Bila null, average_cost tetap.
      */
     public static function record(
         Product $product,
@@ -149,6 +152,14 @@ class StockMovement extends Model
             if ($type === 'in' && $unitCost !== null) {
                 $costBasis = $totalCost ?? ($unitCost * $absQuantity);
                 $locked->average_cost = $locked->recalculateAverageCost($absQuantity, $costBasis);
+            }
+
+            // QA-025: retur ke supplier mengeluarkan NILAI PO dari persediaan, jadi rata-rata
+            // ikut dikoreksi. Hanya jalan bila caller mengirim $totalCost (nilai exact yang
+            // dikeluarkan); retur pelanggan tidak mengirimnya dan TIDAK mengubah average_cost.
+            // Sama seperti blok di atas: HARUS sebelum stok dikurangi (butuh stok LAMA).
+            if ($type === 'return_out' && $totalCost !== null) {
+                $locked->average_cost = $locked->recalculateAverageCostAfterRemoval($absQuantity, $totalCost);
             }
 
             // Assignment atribut LANGSUNG ($locked->stock = ...), BUKAN

@@ -231,6 +231,40 @@ class Product extends Model
     }
 
     /**
+     * Hitung ulang harga pokok rata-rata setelah sebagian persediaan DIKELUARKAN dengan
+     * nilai tertentu (retur ke supplier, QA-025). Kebalikan recalculateAverageCost():
+     *
+     *   avg baru = (stok x avg - nilai keluar) / (stok - qty keluar)
+     *
+     * Contoh: stok 200 @1.500 (total Rp 300.000); batch kedua 100 @2.000 diretur penuh
+     * (nilai Rp 200.000) -> (300.000 - 200.000) / 100 = Rp 1.000.
+     *
+     * Kasus tepi (sengaja):
+     *  - Stok habis (sisa <= 0): rata-rata lama DIPERTAHANKAN. Tidak ada barang tersisa yang
+     *    perlu dinilai, dan penerimaan berikutnya mengabaikan rata-rata lama (stok <= 0).
+     *  - Hasil negatif (nilai retur > nilai persediaan tercatat, mis. harga PO jauh di atas
+     *    rata-rata karena batch lain lebih murah): dijepit ke 0, tidak pernah negatif.
+     *  - Pembulatan hanya SATU KALI di akhir, dari nilai exact (sama seperti saat barang masuk).
+     *
+     * Dipanggil HANYA dari StockMovement::record() SEBELUM stok dikurangi ($this->stock =
+     * stok LAMA, sebelum retur ini).
+     */
+    public function recalculateAverageCostAfterRemoval(float $outgoingQty, float $outgoingValue): int
+    {
+        $currentStock = (float) $this->stock;
+        $currentAvgCost = (int) $this->average_cost;
+        $remaining = $currentStock - $outgoingQty;
+
+        if ($remaining <= 0.0005) {
+            return $currentAvgCost;
+        }
+
+        $newAvgCost = (($currentStock * $currentAvgCost) - $outgoingValue) / $remaining;
+
+        return max(0, (int) round($newAvgCost));
+    }
+
+    /**
      * Pecah sebuah kuantitas (dalam satuan dasar) jadi kombinasi satuan dari
      * yang TERBESAR ke TERKECIL — supaya angka besar di satuan dasar enak
      * dibaca. Contoh (1 dus=288 sachet, 1 renceng=12 sachet, dasar=sachet):

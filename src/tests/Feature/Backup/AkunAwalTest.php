@@ -21,7 +21,9 @@ class AkunAwalTest extends TestCase
     {
         $this->seed(RoleUserSeeder::class);
 
-        $this->assertSame(['admin', 'gudang', 'kasir'], User::orderBy('role')->pluck('role')->all());
+        // Diurutkan di PHP: ORDER BY pada kolom ENUM MySQL mengikuti urutan definisi (admin, kasir,
+        // gudang), sedangkan SQLite mengurutkan abjad — hasil query berbeda antar-mesin.
+        $this->assertSame(['admin', 'gudang', 'kasir'], User::pluck('role')->sort()->values()->all());
         $this->assertTrue(Hash::check('password', User::where('email', 'admin@toko.test')->value('password')));
     }
 

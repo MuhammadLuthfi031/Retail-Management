@@ -23,7 +23,8 @@ use Illuminate\Validation\ValidationException;
  *    qty dasar; retur yang menghabiskan sisa mengambil SISA nilai supaya total nilai per
  *    item tepat = harga beli x qty diterima (tanpa selisih pembulatan).
  *  - Stok berkurang HANYA lewat StockMovement::record() (type 'return_out'); stok tidak
- *    pernah minus. average_cost TIDAK diubah (keputusan desain: lihat diskusi retur supplier).
+ *    pernah minus. average_cost DIKOREKSI (QA-025, keputusan pemilik): nilai retur (harga PO)
+ *    dikeluarkan dari persediaan dan rata-rata dihitung ulang dari sisa stok.
  *  - purchase_orders (status, total_amount) dan quantity_received TIDAK diubah.
  *  - Idempotent per idempotency_key: kirim ulang mengembalikan retur yang sama.
  *
@@ -103,6 +104,7 @@ class PurchaseReturnService
                         userId: $userId,
                         reference: $return->return_number,
                         note: "Retur ke supplier PO {$locked->po_number}: " . $this->fmt($line['qty_milli']) . " {$unit->unit_name}",
+                        totalCost: (float) $line['value'],
                     );
                 }
 

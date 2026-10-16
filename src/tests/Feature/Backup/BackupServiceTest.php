@@ -239,15 +239,22 @@ class BackupServiceTest extends TestCase
     public function test_angka_ditulis_sebagai_angka_bukan_teks(): void
     {
         $product = $this->makeProduct(['name' => 'Beras']);
-        DB::table('products')->where('id', $product->id)->update(['average_cost' => 1234.5, 'stock' => 12.5]);
+        DB::table('products')->where('id', $product->id)->update(['average_cost' => 1235, 'stock' => 12.5]);
 
         $info = $this->backups->create();
         $sheets = $this->readXlsxFromBackup($info['path']);
 
         $header = $sheets['Produk'][0];
         $row = $sheets['Produk'][1];
-        $this->assertSame(1234.5, $row[array_search('average_cost', $header)], 'harus angka, bukan teks "1234.500"');
-        $this->assertSame(12.5, $row[array_search('stock', $header)]);
+        // average_cost bertipe bigint (bilangan bulat) dan stock decimal(12,3): MySQL membulatkan
+        // 1234.5 menjadi 1235 pada kolom bigint, SQLite tidak — nilai uji dipilih valid di
+        // kedua mesin. Yang diuji: keduanya tertulis sebagai ANGKA, bukan teks "1235"/"12.500".
+        $avg = $row[array_search('average_cost', $header)];
+        $stock = $row[array_search('stock', $header)];
+        $this->assertIsNotString($avg, 'average_cost harus angka, bukan teks');
+        $this->assertIsNotString($stock, 'stock harus angka, bukan teks "12.500"');
+        $this->assertEquals(1235, $avg);
+        $this->assertEquals(12.5, $stock);
     }
 
     public function test_teks_berawalan_rumus_tidak_menjadi_rumus_excel(): void
